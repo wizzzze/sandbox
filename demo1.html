@@ -29,16 +29,122 @@
 
 		<div id="container"> </div>
 		<script src="js/three.min.js"> </script>
+		<script src="js/pathTracingCommon.js"> </script>
+		<script src="js/EditorControls.js"> </script>
 	</body>
-	<script>
-		var renderer = new THREE.WebGLRenderer();
-		renderer.autoClear = false;
-		// 1 is full resolution, 0.5 is half, 0.25 is quarter, etc. (must be > than 0.0)
-		renderer.setPixelRatio(pixelRatio);
-		renderer.setSize( window.innerWidth, window.innerHeight );
-		// renderer.context.getExtension('OES_texture_float');
+
+	<script id="vertex_shader" type="x-shader/x-vertex">
 		
-		var container = document.getElementById( 'container' );
-		container.appendChild( renderer.domElement );
 	</script>
+	<script id="pathTracingFragmentShader" type="x-shader/x-fragment">
+
+
+		
+		// rd does not have to be normalized - this is used as an optimisation in the primary light raycast
+		float castRay( vec3 ro, vec3 rd, out vec2 uv, out vec3 col, out vec3 n )
+		{
+		    uv = vec2(0.); n = uv.xxx;
+		    
+		    float rt = DIST_MAX;
+		    for( int i = 0; i < QUAD_COUNT; i++ )
+		    {
+		        vec2 uvi; float rti;
+		        if( rayQuadUV( ro, rd, quads[i].p, quads[i].n, quads[i].scl, uvi, rti ) 
+		          && rti < rt )
+		        {
+		            uv = quads[i].uv_c + (uvi-.5)*quads[i].uv_wh;
+		            col = GetColor(quads[i].col);
+		            n = quads[i].n;
+		            rt = rti;
+		        }
+		    }
+		    
+		    return rt;
+		}
+	</script>
+<script>
+	var renderer = new THREE.WebGLRenderer();
+	renderer.setClearColor(0x999999);
+	// renderer.autoClear = false;
+	var width = window.innerWidth;
+	var height = window.innerHeight;
+	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setSize( width, height );
+	// renderer.context.getExtension('OES_texture_float');
+	
+	var container = document.getElementById( 'container' );
+	container.appendChild( renderer.domElement );
+
+
+	var scene = new THREE.Scene();
+
+	function genPlane(position,rotation, color){
+		color = color | 0x999999;
+		var geometry = new THREE.PlaneBufferGeometry( 4, 4 );
+		var material = new THREE.MeshStandardMaterial( {
+			color: color, 
+			roughness: 0.9
+		} );
+		var plane = new THREE.Mesh( geometry, material );
+		plane.position.set(position[0],position[1],position[2]);
+		if(rotation)
+			plane.rotation.set(rotation[0],rotation[1],rotation[2]);
+		scene.add( plane );
+
+	}
+
+	genPlane([-2, 0, 0],[0, Math.PI / 2, 0]);
+	genPlane([2, 0, 0],[0, -Math.PI / 2, 0]);
+	genPlane([0, 0, -2]);
+	genPlane([0, 2, 0],[Math.PI / 2, 0, 0]);
+	genPlane([0, -2, 0],[-Math.PI / 2, 0, 0]);
+
+	var light = new THREE.PointLight( 0xffffff, 1, 100 );
+	light.position.set( 0, 1, 0 );
+	scene.add( light );
+
+	var camera = new THREE.PerspectiveCamera(45, width / height, 1, 1000);
+	var controls = new THREE.EditorControls(camera, renderer.domElement);
+
+	camera.position.set(0,0,10);
+	function animate() {
+		requestAnimationFrame( animate );
+		renderer.render( scene, camera );
+	}
+	animate();
+
+
+
+	function genLightMap(){
+		var quadCamera = new THREE.OrthographicCamera( -1, 1, 1, -1, 0, 1 );
+
+		var renderTarget1 = new THREE.WebGLRenderTarget( width, height, {
+			minFilter: THREE.NearestFilter,
+			magFilter: THREE.NearestFilter,
+			format: THREE.RGBAFormat,
+			type: THREE.FloatType,
+			depthBuffer: false,
+			stencilBuffer: false
+		} );
+
+		renderTarget1.texture.generateMipmaps = false;
+
+		// var pathTracingGeometry = new THREE.PlaneBufferGeometry( 2, 2 );
+
+		// var	pathTracingUniforms = {
+
+		// };
+
+		// pathTracingMaterial = new THREE.ShaderMaterial( {
+			
+
+  //   	} );
+
+		// pathTracingMesh = new THREE.Mesh( pathTracingGeometry, pathTracingMaterial );
+		// pathTracingScene.add( pathTracingMesh );
+
+
+		render.render(scene, quadCamera, renderTarget1);
+}
+</script>
 </html>

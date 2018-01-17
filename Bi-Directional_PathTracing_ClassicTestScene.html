@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>three.js PathTracing Renderer - Materials Showcase #1</title>
+		<title>three.js PathTracing Renderer - Bi-Directional PathTracing Classic Test Scene</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
 		<style>
+
 			html, body {
 				width: 100%;
 				height: 100%;
@@ -28,7 +29,12 @@
 	<body>
 
 		<div id="container"> </div>
-		<div id="info">PathTracing</div>
+		<div id="info">three.js PathTracing Renderer - Bi-Directional PathTracing Classic Test Scene</div>
+		
+		<div id="cameraInfo" style="position:fixed; left:3%; bottom:2%; font-family:arial; font-type:bold; color:rgb(255,255,255);">
+		FOV: 50 / Aperture: 0.00 / FocusDistance: 1180 <br> 
+		Samples: 0
+		</div>
 
 		<script src="js/three.min.js"> </script>
 		<script src="js/pathTracingCommon.js"> </script>
@@ -63,33 +69,108 @@ precision highp sampler2D;
 
 #include <pathtracing_uniforms_and_defines>
 
-#define N_QUADS 5
 #define N_SPHERES 3
+#define N_ELLIPSOIDS 1
+#define N_OPENCYLINDERS 6
+#define N_CONES 1
+#define N_DISKS 2
+#define N_QUADS 5
+#define N_BOXES 1
 
 struct Ray { vec3 origin; vec3 direction; };
-struct Sphere { float radius; vec3 position; vec3 emission; vec3 color; int type; };
-struct Quad { vec3 normal; vec3 v0; vec3 v1; vec3 v2; vec3 v3; vec3 emission; vec3 color; int type; };
-struct Intersection { vec3 normal; vec3 emission; vec3 color; int type; };
+struct Sphere { float radius; vec3 position; vec3 emission; vec3 color; float roughness; int type; };
+struct Ellipsoid { vec3 radii; vec3 position; vec3 emission; vec3 color; float roughness; int type; };
+struct OpenCylinder { float radius; vec3 pos1; vec3 pos2; vec3 emission; vec3 color; float roughness; int type; };
+struct Cone { vec3 pos0; float radius0; vec3 pos1; float radius1; vec3 emission; vec3 color; float roughness; int type; };
+struct Disk { float radiusSq; vec3 pos; vec3 normal; vec3 emission; vec3 color; float roughness; int type; };
+struct Quad { vec3 normal; vec3 v0; vec3 v1; vec3 v2; vec3 v3; vec3 emission; vec3 color; float roughness; int type; };
+struct Box { vec3 minCorner; vec3 maxCorner; vec3 emission; vec3 color; float roughness; int type; };
+struct Intersection { vec3 normal; vec3 emission; vec3 color; float roughness; int type; };
 
-Quad quads[N_QUADS];
 Sphere spheres[N_SPHERES];
+Ellipsoid ellipsoids[N_ELLIPSOIDS];
+OpenCylinder openCylinders[N_OPENCYLINDERS];
+Cone cones[N_CONES];
+Disk disks[N_DISKS];
+Quad quads[N_QUADS];
+Box boxes[N_BOXES];
 
 
 #include <pathtracing_random_functions>
 
 #include <pathtracing_sphere_intersect>
 
+#include <pathtracing_ellipsoid_intersect>
+
+#include <pathtracing_opencylinder_intersect>
+
+#include <pathtracing_cone_intersect>
+
+#include <pathtracing_disk_intersect>
+
 #include <pathtracing_quad_intersect>
+
+#include <pathtracing_box_intersect>
 
 
 //-----------------------------------------------------------------------
 float SceneIntersect( Ray r, inout Intersection intersec )
 //-----------------------------------------------------------------------
 {
-	float d;
+	vec3 normal;
+        float d;
 	float t = INFINITY;
+	// clear fields out
+	intersec.normal = vec3(0);
+	intersec.emission = vec3(0);
+	intersec.color = vec3(0);
+	intersec.roughness = 0.0;
+	intersec.type = -1;
+			
+	// ROOM
+	for (int i = 0; i < N_QUADS; i++)
+        {
+		d = QuadIntersect( quads[i].v0, quads[i].v1, quads[i].v2, quads[i].v3, quads[i].normal, r );
+		if (d < t)
+		{
+			t = d;
+			intersec.normal = normalize(quads[i].normal);
+			intersec.emission = quads[i].emission;
+			intersec.color = quads[i].color;
+			intersec.roughness = quads[i].roughness;
+			intersec.type = quads[i].type;
+		}
+        }
 	
-        for (int i = 0; i < N_SPHERES; i++)
+	// TABLETOP
+	d = BoxIntersect( boxes[0].minCorner, boxes[0].maxCorner, r, normal );
+	if (d < t)
+	{
+		t = d;
+		intersec.normal = normalize(normal);
+		intersec.emission = boxes[0].emission;
+		intersec.color = boxes[0].color;
+		intersec.roughness = boxes[0].roughness;
+		intersec.type = boxes[0].type;
+	}
+	
+	// TABLE LEGS, LAMP POST, and SPOTLIGHT CASING
+	for (int i = 0; i < N_OPENCYLINDERS; i++)
+        {
+		d = OpenCylinderIntersect( openCylinders[i].pos1, openCylinders[i].pos2, openCylinders[i].radius, r, normal );
+		if (d < t)
+		{
+			t = d;
+			intersec.normal = normalize(normal);
+			intersec.emission = openCylinders[i].emission;
+			intersec.color = openCylinders[i].color;
+			intersec.roughness = openCylinders[i].roughness;
+			intersec.type = openCylinders[i].type;
+		}
+        }
+	
+	// LAMP BASE AND FLOOR LAMP BULB
+	for (int i = 0; i < N_SPHERES - 1; i++)
         {
 		d = SphereIntersect( spheres[i].radius, spheres[i].position, r );
 		if (d < t)
@@ -98,103 +179,175 @@ float SceneIntersect( Ray r, inout Intersection intersec )
 			intersec.normal = normalize((r.origin + r.direction * t) - spheres[i].position);
 			intersec.emission = spheres[i].emission;
 			intersec.color = spheres[i].color;
+			intersec.roughness = spheres[i].roughness;
 			intersec.type = spheres[i].type;
 		}
         }
 	
-	for (int i = 0; i < N_QUADS; i++)
+	// LIGHT DISK OF SPOTLIGHT AND SPOTLIGHT CASE DISK BACKING
+	for (int i = 0; i < N_DISKS; i++)
         {
-		d = QuadIntersect( quads[i].v0, quads[i].v1, quads[i].v2, quads[i].v3, quads[i].normal, r );
+		d = DiskIntersect( disks[i].pos, disks[i].normal, disks[i].radiusSq, r );
 		if (d < t)
 		{
 			t = d;
-			intersec.normal = (quads[i].normal);
-			intersec.emission = quads[i].emission;
-			intersec.color = quads[i].color;
-			intersec.type = quads[i].type;
+			intersec.normal = normalize(disks[i].normal);
+			intersec.emission = disks[i].emission;
+			intersec.color = disks[i].color;
+			intersec.roughness = disks[i].roughness;
+			intersec.type = disks[i].type;
 		}
-        }
+	}
+	
+	// LAMP SHADE
+	d = ConeIntersect( cones[0].pos0, cones[0].radius0, cones[0].pos1, cones[0].radius1, r, normal );
+	if (d < t)
+	{
+		t = d;
+		intersec.normal = normalize(normal);
+		intersec.emission = cones[0].emission;
+		intersec.color = cones[0].color;
+		intersec.roughness = cones[0].roughness;
+		intersec.type = cones[0].type;
+	}
+	
+	
+	// GLASS EGG
+	vec3 hitPos;
+	
+	d = EllipsoidIntersect( ellipsoids[0].radii, ellipsoids[0].position, r );
+	hitPos = r.origin + r.direction * d;
+	if (hitPos.y < ellipsoids[0].position.y) 
+		d = INFINITY;
+	
+	if (d < t)
+	{
+		t = d;
+		intersec.normal = normalize( ((r.origin + r.direction * t) - ellipsoids[0].position) / (ellipsoids[0].radii * ellipsoids[0].radii) );
+		intersec.emission = ellipsoids[0].emission;
+		intersec.color = ellipsoids[0].color;
+		intersec.roughness = ellipsoids[0].roughness;
+		intersec.type = ellipsoids[0].type;
+	}
+	
+	d = SphereIntersect( spheres[2].radius, spheres[2].position, r );
+	hitPos = r.origin + r.direction * d;
+	if (hitPos.y >= spheres[2].position.y) 
+		d = INFINITY;
+	
+	if (d < t)
+	{
+		t = d;
+		intersec.normal = normalize((r.origin + r.direction * t) - spheres[2].position);
+		intersec.emission = spheres[2].emission;
+		intersec.color = spheres[2].color;
+		intersec.roughness = spheres[2].roughness;
+		intersec.type = spheres[2].type;
+	}
+	
 	
 	return t;
 }
 
 
-#include <pathtracing_direct_lighting_sphere>
-
+#define EYE_PATH_LENGTH    5
+#define LIGHT_PATH_LENGTH  2
 
 //-----------------------------------------------------------------------
 vec3 CalculateRadiance( Ray r, inout float seed )
 //-----------------------------------------------------------------------
 {
-	vec3 accumCol = vec3(0.0);
-    vec3 mask = vec3(1.0);
-    Intersection intersec;
-	int sampleDiffuseBudget = 3;
+	Intersection intersec;
+	vec3 accumCol = vec3(0);
+	vec3 maskEyePath = vec3(1);
+	vec3 maskLightPath = vec3(1);
+	vec3 eyeX = vec3(0);
+	vec3 lightX = vec3(0);
+	vec3 nl, n, x;
+	vec3 nlEyePath = vec3(0);
+	float t = INFINITY;
+	int diffuseSampleCount = 0;
+	int previousIntersecType = -1;
+	//set following flag to true - we haven't found a diffuse surface yet and can exit early (keeps frame rate high)
 	bool bounceIsSpecular = true;
+	bool skipConnectionEyePath = true;
 	
+	// Eye path tracing (from Camera) ///////////////////////////////////////////////////////////////////////////
 	
-        for (int depth = 0; depth < 4; depth++)
+	for (int depth = 0; depth < EYE_PATH_LENGTH; depth++)
 	{
-		sampleDiffuseBudget -= 1;
-		
-		float t = SceneIntersect(r, intersec);
+	
+		t = SceneIntersect(r, intersec);
 		
 		if (t == INFINITY)
 		{
-                        break;
+			break;
 		}
 		
-		
-		// if we reached something bright, don't spawn any more rays
 		if (intersec.type == LIGHT)
-		{	
+		{
 			if (bounceIsSpecular)
 			{
-				accumCol = mask * intersec.emission;
+				accumCol = maskEyePath * intersec.emission;
+				
+				skipConnectionEyePath = true;
 			}
 			
 			break;
 		}
 		
-		
 		// useful data 
-		vec3 n = intersec.normal;
-                vec3 nl = dot(n,r.direction) <= 0.0 ? normalize(n) : normalize(n * -1.0);
-		vec3 x = r.origin + r.direction * t;
+		n = normalize(intersec.normal);
+		nl = dot(n, r.direction) < 0.0 ? normalize(n) : normalize(n * -1.0);
+		x = r.origin + r.direction * t;
 		
-		    
-        if (intersec.type == DIFF) // Ideal DIFFUSE reflection
-        {
-			mask *= intersec.color;
-			accumCol += calcDirectLightingSphere(mask, x, nl, spheres[0], seed);
-                        bounceIsSpecular = false;
+		
+		if (intersec.type == DIFF) // Ideal DIFFUSE reflection
+		{
+			maskEyePath *= intersec.color;
+			eyeX = x + nl * 2.0;
+			nlEyePath = nl;
+			skipConnectionEyePath = false;
+			bounceIsSpecular = false;
+			previousIntersecType = DIFF;
 			
-			sampleDiffuseBudget -= 1;
-			if (sampleDiffuseBudget < 0) break;
+			diffuseSampleCount += 1;
+			if (diffuseSampleCount > 1 || rand(seed) < 0.5)
+			{
+				break;
+			}
 			
 			// choose random Diffuse sample vector
 			r = Ray( x, randomCosWeightedDirectionInHemisphere(nl, seed) );
 			r.origin += r.direction * 2.0;
-			//mask *= max(0.0, dot(r.direction, nl));
-			continue;	
-                }
+			eyeX = r.origin;
+			//maskEyePath *= max(0.0, dot(r.direction, nl));
+			continue;
+		}
 		
-                if (intersec.type == SPEC)  // Ideal SPECULAR reflection
-                {
-			r = Ray( x, reflect(r.direction, nl) );
-			r.origin += r.direction * 2.0;
-			mask *= intersec.color;
-			bounceIsSpecular = true;
-                        continue;
-                }
-		
-                if (intersec.type == REFR)  // Ideal dielectric REFRACTION
+		if (intersec.type == SPEC)  // Ideal SPECULAR reflection
 		{
-			sampleDiffuseBudget += 1;
-			
+			maskEyePath *= intersec.color;
+			vec3 reflectVec = reflect(r.direction, nl);
+			vec3 randVec = (randomDirectionInHemisphere(nl, seed));
+			r = Ray( x, mix(reflectVec, randVec, intersec.roughness) );
+			r.origin += r.direction * 2.0;
+			bounceIsSpecular = true;
+			previousIntersecType = SPEC;
+			continue;
+		}
+		
+		
+		if (intersec.type == REFR)  // Ideal dielectric refraction
+		{	
 			float nc = 1.0; // IOR of Air
-			float nt = 1.5; // IOR of common Glass
-			float nnt = dot(n,nl) > 0.0 ? (nc / nt) : (nt / nc); // Ray from outside going in?
+			float nt = 1.6; // IOR of Heavy Glass
+			if (dot(n, nl) < 0.0) 
+			{
+				nc = nt;
+				nt = 1.0;
+			}
+			float nnt = nc / nt;
 			vec3 tdir = refract(r.direction, nl, nnt);
 				
 			// Original Fresnel equations
@@ -203,90 +356,175 @@ vec3 CalculateRadiance( Ray r, inout float seed )
 			float coefS = (nc * cosThetaInc - nt * cosThetaTra) / (nc * cosThetaInc + nt * cosThetaTra);
 			float coefP = (nc * cosThetaTra - nt * cosThetaInc) / (nc * cosThetaTra + nt * cosThetaInc);
 			float Re = ( (coefS * coefS) + (coefP * coefP) ) * 0.5; // Unpolarized
-			float Tr = 1.0 - Re;
 			
+			bounceIsSpecular = true;
+				
 			if (rand(seed) < Re) // reflect ray from surface
 			{
+				previousIntersecType = REFR;
 				r = Ray( x, reflect(r.direction, nl) );
-			    	r.origin += r.direction * 2.0;
-				bounceIsSpecular = true;
-			    	continue;	
+				r.origin += r.direction * 2.0;
+				continue;	
 			}
 			else // transmit ray through surface
 			{
-				mask *= intersec.color;
+				if (previousIntersecType == DIFF) 
+					maskEyePath *= 4.0;
+					
+				previousIntersecType = REFR;
+				maskEyePath *= intersec.color;
 				r = Ray(x, tdir);
 				r.origin += r.direction * 2.0;
-				bounceIsSpecular = true;
 				continue;
-			}
-			
+			}	
 		} // end if (intersec.type == REFR)
 		
-		if (intersec.type == COAT)  // Diffuse object underneath with ClearCoat on top
+	} // end for (int depth = 0; depth < EYE_PATH_LENGTH; depth++)
+	
+	
+	if (skipConnectionEyePath)
+		return accumCol;
+	
+	
+	// Light path tracing (from Light sources) ////////////////////////////////////////////////////////////////////
+
+	vec3 randLightPos;
+	vec3 randLightDir;
+	vec3 randPointOnLight;
+	
+	// Choose a random light source for this loop
+	if (rand(seed) < 0.7)
+	{
+		// Floor Lamp
+		vec3 floorLampDir = vec3(0,1,0);
+		randLightDir = normalize(randomDirectionInHemisphere(floorLampDir, seed));
+		randLightPos = vec3(80.0, 372.0, -430.0);
+		randPointOnLight = randLightPos + randLightDir * 6.0; // multiplied by light bulb radius
+		maskLightPath = spheres[1].emission * ONE_OVER_TWO_PI;
+	}
+	else
+	{
+		// Spot Light
+		vec3 spotlightPos1 = vec3(380.0, 290.0, -470.0);
+		vec3 spotlightPos2 = vec3(430.0, 315.0, -485.0);
+		vec3 spotlightDir = normalize(spotlightPos1 - spotlightPos2);
+		randLightPos = spotlightPos2 + spotlightDir * 2.0;
+		randLightDir = normalize(randomDirectionInHemisphere(spotlightDir, seed));
+		randPointOnLight = randLightPos + randLightDir;
+		maskLightPath = disks[1].emission * ONE_OVER_TWO_PI;
+	}
+	
+	r = Ray( randPointOnLight, randLightDir );
+	r.origin += r.direction * 2.0;
+	vec3 originalLightPos = r.origin;
+	lightX = originalLightPos;
+	vec3 originalLightMask = maskLightPath;
+	
+	// the following loop only performs 2 iterations because of the relative ease of this particular scene for
+	// the light sources to escape their blockers and find a diffuse surface (like a nearby wall) to illuminate.
+	// For more hidden lights however, 3 depth iterations might be needed to get the light out and into the scene.
+	
+	for (int depth = 0; depth < LIGHT_PATH_LENGTH; depth++)
+	{
+	
+		if (depth == 0 && rand(seed) < 0.5)
 		{
-			float roughness = 0.0;
-			float iOR = 1.4;
-			
-			// Schlick Fresnel approx.
-			float ddn = dot(-r.direction, nl);
-			float nc = 1.0; // IOR of air
-			float nt = iOR; // IOR of ClearCoat 
-			float R0 = (nc - nt) / (nc + nt);
-			R0 *= R0;
-			float c = 1.0 - ddn;
-			float Re = R0 + (1.0 - R0) * c * c * c * c * c;
-			
-			// choose either specular reflection or diffuse
-			if( rand(seed) < Re )
-			{	
-				vec3 reflectVec = reflect(r.direction, nl);
-				vec3 randVec = vec3(rand(seed) * 2.0 - 1.0, rand(seed) * 2.0 - 1.0, rand(seed) * 2.0 - 1.0);
-				r = Ray( x, mix( reflectVec, normalize(nl + randVec), roughness) );
-				r.origin += r.direction;
-				bounceIsSpecular = true;
-				continue;	
-			}
-			else
-			{
-				mask *= intersec.color;
-				accumCol += calcDirectLightingSphere(mask, x, nl, spheres[0], seed);
-				// choose random sample vector for diffuse material underneath ClearCoat
-				r = Ray( x, randomCosWeightedDirectionInHemisphere(nl, seed) );
-				r.origin += r.direction;
-				//mask *= max(0.0, dot(r.direction, nl));
-				bounceIsSpecular = false;
-				continue;
-			}
-			
-		} //end if (intersec.type == COAT)
+			break;
+		}
 		
-	} // end for (int depth = 0; depth < 4; depth++)
+		t = SceneIntersect(r, intersec);
+		
+		if ( t == INFINITY )
+		{
+			break;
+		}
+		
+		// useful data 
+		n = normalize(intersec.normal);
+		nl = dot(n, r.direction) < 0.0 ? normalize(n) : normalize(n * -1.0);
+		x = r.origin + r.direction * t;
+		
+		
+		if (intersec.type == DIFF) // Ideal DIFFUSE reflection
+		{
+			maskLightPath *= max(0.0, dot(-r.direction, nl));
+			maskLightPath *= intersec.color;
+			lightX = x + nl * 2.0;
+			break;
+		}
+		
+		if (intersec.type == SPEC)  // Ideal SPECULAR reflection
+		{
+			vec3 reflectVec = reflect(r.direction, nl);
+			vec3 randVec = (randomDirectionInHemisphere(nl, seed));
+			r = Ray( x, mix(reflectVec, randVec, intersec.roughness) );
+			r.origin += r.direction * 2.0;
+			continue;
+		}
+		
+	} // end for (int depth = 0; depth < LIGHT_PATH_LENGTH; depth++)
 	
 	
-	return accumCol;      
+	// Connect Camera path and Light path ////////////////////////////////////////////////////////////
+	
+	Ray connectRay = Ray(eyeX, normalize(lightX - eyeX));
+	float connectDist = distance(eyeX, lightX);
+	float c = SceneIntersect(connectRay, intersec);
+	if (c >= connectDist)
+	{	
+		maskEyePath *= max(0.0, dot(connectRay.direction, nlEyePath));
+		
+		accumCol = (maskEyePath * maskLightPath);
+	}
+	
+	return accumCol;    
 }
+
 
 //-----------------------------------------------------------------------
 void SetupScene(void)
 //-----------------------------------------------------------------------
 {
-	vec3 z  = vec3(0.0, 0.0, 0.0);// No color value, Black        
-	vec3 L1 = vec3(1.0, 1.0, 1.0) * 10.0;// Bright light
-		    
-	spheres[0] = Sphere( 100.0, vec3(275.0, 610.0, -280.0), L1,                   z, LIGHT);// Light Sphere
-	spheres[1] = Sphere(  90.0, vec3(150.0,  91.0, -200.0),  z, vec3(0.4, 1.0, 0.8),  REFR);// Glass Sphere Left
-	spheres[2] = Sphere(  90.0, vec3(400.0,  91.0, -200.0),  z, vec3(1.0, 1.0, 1.0),  COAT);// ClearCoat Sphere Right
+	vec3 z  = vec3(0);// No color value, Black        
+	vec3 L1 = vec3(1.0, 1.0, 1.0) * 40.0;// Bright White light
+	vec3 L2 = vec3(0.936507, 0.642866, 0.310431) * 50.0;// Bright Yellowish light
+	vec3 wallColor = vec3(1.0, 0.98, 1.0) * 0.4;
+	vec3 tableColor = vec3(1.0, 0.7, 0.4) * 0.6;
+	vec3 lampColor = vec3(1.0, 1.0, 0.8) * 0.7;
+	vec3 spotlightPos1 = vec3(380.0, 290.0, -470.0);
+	vec3 spotlightPos2 = vec3(430.0, 315.0, -485.0);
+	vec3 spotlightDir = normalize(spotlightPos1 - spotlightPos2);
 	
-	quads[0] = Quad( vec3( 0.0, 0.0, 1.0), vec3(  0.0,   0.0,-559.2), vec3(549.6,   0.0,-559.2), vec3(549.6, 548.8,-559.2), vec3(  0.0, 548.8,-559.2), z, vec3( 1.0,  1.0,  1.0), DIFF);// Back Wall
-	quads[1] = Quad( vec3( 1.0, 0.0, 0.0), vec3(  0.0,   0.0,   0.0), vec3(  0.0,   0.0,-559.2), vec3(  0.0, 548.8,-559.2), vec3(  0.0, 548.8,   0.0), z, vec3( 0.7, 0.05, 0.05), DIFF);// Left Wall Red
-	quads[2] = Quad( vec3(-1.0, 0.0, 0.0), vec3(549.6,   0.0,-559.2), vec3(549.6,   0.0,   0.0), vec3(549.6, 548.8,   0.0), vec3(549.6, 548.8,-559.2), z, vec3(0.05, 0.05, 0.7 ), DIFF);// Right Wall Blue
-	quads[3] = Quad( vec3( 0.0,-1.0, 0.0), vec3(  0.0, 548.8,-559.2), vec3(549.6, 548.8,-559.2), vec3(549.6, 548.8,   0.0), vec3(  0.0, 548.8,   0.0), z, vec3( 1.0,  1.0,  1.0), DIFF);// Ceiling
-	quads[4] = Quad( vec3( 0.0, 1.0, 0.0), vec3(  0.0,   0.0,   0.0), vec3(549.6,   0.0,   0.0), vec3(549.6,   0.0,-559.2), vec3(  0.0,   0.0,-559.2), z, vec3( 1.0,  1.0,  1.0), DIFF);// Floor
+	quads[0] = Quad( vec3( 0.0, 0.0, 1.0), vec3(  0.0,   0.0,-559.2), vec3(549.6,   0.0,-559.2), vec3(549.6, 548.8,-559.2), vec3(  0.0, 548.8,-559.2),  z, wallColor, 0.0, DIFF);// Back Wall
+	quads[1] = Quad( vec3( 1.0, 0.0, 0.0), vec3(  0.0,   0.0,   0.0), vec3(  0.0,   0.0,-559.2), vec3(  0.0, 548.8,-559.2), vec3(  0.0, 548.8,   0.0),  z, wallColor, 0.0, DIFF);// Left Wall Red
+	quads[2] = Quad( vec3(-1.0, 0.0, 0.0), vec3(549.6,   0.0,-559.2), vec3(549.6,   0.0,   0.0), vec3(549.6, 548.8,   0.0), vec3(549.6, 548.8,-559.2),  z, wallColor, 0.0, DIFF);// Right Wall Green
+	quads[3] = Quad( vec3( 0.0,-1.0, 0.0), vec3(  0.0, 548.8,-559.2), vec3(549.6, 548.8,-559.2), vec3(549.6, 548.8,   0.0), vec3(  0.0, 548.8,   0.0),  z, vec3(1.0), 0.0, DIFF);// Ceiling
+	quads[4] = Quad( vec3( 0.0, 1.0, 0.0), vec3(  0.0,   0.0,   0.0), vec3(549.6,   0.0,   0.0), vec3(549.6,   0.0,-559.2), vec3(  0.0,   0.0,-559.2),  z, wallColor, 0.0, DIFF);// Floor
+	
+	boxes[0] = Box( vec3(180.0, 145.0, -540.0), vec3(510.0, 155.0, -310.0), z, tableColor, 0.0, DIFF);// Table Top
+	
+	openCylinders[0] = OpenCylinder( 8.5, vec3(205.0, 0.0, -515.0), vec3(205.0, 145.0, -515.0), z, tableColor, 0.0, DIFF);// Table Leg
+	openCylinders[1] = OpenCylinder( 8.5, vec3(485.0, 0.0, -515.0), vec3(485.0, 145.0, -515.0), z, tableColor, 0.0, DIFF);// Table Leg
+	openCylinders[2] = OpenCylinder( 8.5, vec3(205.0, 0.0, -335.0), vec3(205.0, 145.0, -335.0), z, tableColor, 0.0, DIFF);// Table Leg
+	openCylinders[3] = OpenCylinder( 8.5, vec3(485.0, 0.0, -335.0), vec3(485.0, 145.0, -335.0), z, tableColor, 0.0, DIFF);// Table Leg
+	
+	openCylinders[4] = OpenCylinder( 6.0, vec3(80.0, 0.0, -430.0), vec3(80.0, 366.0, -430.0), z, lampColor, 0.0, SPEC);// Floor Lamp Post
+	openCylinders[5] = OpenCylinder( 22.0, spotlightPos1, spotlightPos2, z, vec3(1.0,0.9,0.9), 0.6, SPEC);// Spotlight Casing
+	
+	disks[0] = Disk( 22.0, spotlightPos2, spotlightDir, z, vec3(0.4), 1.0, SPEC);// disk backing of spotlight
+	disks[1] = Disk( 21.0, spotlightPos2 + spotlightDir * 2.0, spotlightDir, L2, z, 0.0, LIGHT);// Light disk of spotlight
+	
+	cones[0] = Cone( vec3(80.0, 405.0, -430.0), 70.0, vec3(80.0, 365.0, -430.0), 6.0, z, lampColor, 0.2, SPEC);// Floor Lamp Shade
+	
+	spheres[0] = Sphere( 80.0, vec3(80.0, -60.0, -430.0), z, lampColor, 0.4, SPEC);// Floor Lamp Base
+	spheres[1] = Sphere( 6.0, vec3(80.0, 378.0, -430.0), L1, z, 0.0, LIGHT);// Floor Lamp Bulb
+	
+	spheres[2] = Sphere( 33.0, vec3(290.0, 189.0, -435.0), z, vec3(1), 0.0, REFR);// Glass Egg Bottom
+	ellipsoids[0] = Ellipsoid( vec3(33, 62, 33), vec3(290.0, 189.0, -435.0), z, vec3(1), 0.0, REFR);// Glass Egg Top
 }
 
-#include <pathtracing_main>
 
+#include <pathtracing_main>
 
 		</script>
 		
@@ -303,8 +541,6 @@ void SetupScene(void)
 			var pathTracingGeometry, pathTracingMaterial, pathTracingMesh;
 			var screenTextureGeometry, screenTextureMaterial, screenTextureMesh;
 			var screenOutputGeometry, screenOutputMaterial, screenOutputMesh;
-			var tallBoxGeometry, tallBoxMaterial, tallBoxMesh;
-			var shortBoxGeometry, shortBoxMaterial, shortBoxMesh;
 			var pathTracingRenderTarget, screenOutputRenderTarget;
 			var quadCamera, worldCamera;
 			var renderer, clock;
@@ -315,7 +551,7 @@ void SetupScene(void)
 			var apertureSize = 0.0;
 			var increaseAperture = false;
 			var decreaseAperture = false;
-			var focusDistance = 500.0;
+			var focusDistance = 1180.0;
 			var increaseFocusDist = false;
 			var decreaseFocusDist = false;
 			var pixelRatio = 0.5;
@@ -357,7 +593,10 @@ void SetupScene(void)
 			infoElement.style.webkitUserSelect = "none";
 			infoElement.style.MozUserSelect = "none";
 			
-			
+			var cameraInfoElement = document.getElementById( 'cameraInfo' );
+			cameraInfoElement.style.cursor = "default";
+			cameraInfoElement.style.webkitUserSelect = "none";
+			cameraInfoElement.style.MozUserSelect = "none";
 			
 			var mouseControl = true;
 			
@@ -388,8 +627,7 @@ void SetupScene(void)
 				
 				if ( 'createTouch' in document ) {
 					mouseControl = false;
-					pixelRatio = 0.5;
-
+					pixelRatio = 0.4;
 					mobileJoystickControls = new MobileJoystickControls ({
 						//showJoystick: true,
 						enableMultiTouch: true
@@ -487,10 +725,11 @@ void SetupScene(void)
 				pathTracingScene.add( cameraControlsObject );
 
 				// for flyCam
-				cameraControlsObject.position.set(278, 170, 300);
-				///cameraControlsYawObject.rotation.y = 0.0;
+				cameraControlsObject.position.set(380, 350, 180);
+				// look slightly to the left
+				cameraControlsYawObject.rotation.y = 0.2;
 				// look slightly upward
-				cameraControlsPitchObject.rotation.x = 0.005;
+				cameraControlsPitchObject.rotation.x = -0.25;
 				
 				oldYawRotation = cameraControlsYawObject.rotation.y;
 				oldPitchRotation = cameraControlsPitchObject.rotation.x;
@@ -525,6 +764,7 @@ void SetupScene(void)
 				pathTracingUniforms = {
 					
 					tPreviousTexture: { type: "t", value: screenTextureRenderTarget.texture },
+					//tTriangleTexture: { type: "t", value: triangleDataTexture },
 					
 					uCameraIsMoving: { type: "b1", value: false },
 					uCameraJustStartedMoving: { type: "b1", value: false },
@@ -533,13 +773,15 @@ void SetupScene(void)
 					uULen: { type: "f", value: 1.0 },
 					uVLen: { type: "f", value: 1.0 },
 					uApertureSize: { type: "f", value: 0.0 },
-					uFocusDistance: { type: "f", value: 500.0 },
+					uFocusDistance: { type: "f", value: 1180.0 },
 					
 					uResolution: { type: "v2", value: new THREE.Vector2() },
 					
+					//uMeshBBox_min: { type: "v3", value: objMeshes.my_mesh.bounding_box_min },
+					//uMeshBBox_max: { type: "v3", value: objMeshes.my_mesh.bounding_box_max },
 					uRandomVector: { type: "v3", value: new THREE.Vector3() },
 				
-					uCameraMatrix: { type: "m4", value: new THREE.Matrix4() },
+					uCameraMatrix: { type: "m4", value: new THREE.Matrix4() }
 	
 				};
 				
@@ -953,6 +1195,7 @@ void SetupScene(void)
 				pathTracingUniforms.uCameraMatrix.value.copy( worldCamera.matrixWorld );
 				screenOutputMaterial.uniforms.uOneOverSampleCounter.value = 1.0 / sampleCounter;
 				
+				cameraInfoElement.innerHTML = "FOV: " + worldCamera.fov + " / Aperture: " + apertureSize.toFixed(2) + " / FocusDistance: " + focusDistance + "<br>" + "Samples: " + sampleCounter;
 				
 				
 				// RENDERING in 3 steps
@@ -961,11 +1204,13 @@ void SetupScene(void)
 				// Perform PathTracing and Render(save) into pathTracingRenderTarget
 				// Read previous screenTextureRenderTarget to use as a new starting point to blend with
 				renderer.render( pathTracingScene, worldCamera, pathTracingRenderTarget );	
+				// renderer.render( pathTracingScene, worldCamera );	
 				
 				// STEP 2
 				// Render(copy) the final pathTracingScene output(above) into screenTextureRenderTarget
 				// This will be used as a new starting point for Step 1 above
 				renderer.render( screenTextureScene, quadCamera, screenTextureRenderTarget );
+				// renderer.render( screenTextureScene, quadCamera );
 				
 				// STEP 3
 				// Render full screen quad with generated pathTracingRenderTarget in STEP 1 above.
