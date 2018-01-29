@@ -22,69 +22,97 @@
 				text-align: center;
 				color: #ffffff;
 			}		
+			#texture{
+				position: absolute;
+				width:512px;
+				height:512px;
+				bottom:0;
+				left:0;
+				z-index:2;
+				background-color:#000;
+			}
 			
 		</style>
 	</head>
 	<body>
 
 		<div id="container"> </div>
+		<canvas id="texture">
+		</canvas>
 		<script src="js/three.min.js"> </script>
-		<script src="js/pathTracingCommon.js"> </script>
 		<script src="js/EditorControls.js"> </script>
 	</body>
 
 	<script id="vertexShader" type="x-shader/x-vertex">
+		attribute vec2 uv2;
 
-		varying vec2 lightTexCoord;
-		varying vec3 vPosition;
-		varying vec3 vNormal;
+		varying vec4 vPos;
+		varying vec4 vNormal;
+		varying vec2 vUv2;
+
 
 		void main(){
 
-			vPosition = position;
-			vNormal = normal;
-			gl_Position = vec4(uv2.x / 2 - 1, uv2.y / 2 - 1 , 0., 1.);
+			// gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+
+			vPos = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+			vNormal = modelViewMatrix * vec4(normal, 0.0);
+			vUv2 = uv2;
+			gl_Position = vec4(uv2.x, uv2.y, 0., 0.);
 
 		}
 	</script>
 	<script id="fragmentShader" type="x-shader/x-fragment">
+		// #extension GL_EXT_shader_texture_lod : enable
+		// precision highp float;
+
+		uniform float uPositions[48];
+		uniform float uNormals[48];
+		uniform int uIndices[24];
+		// uniform int uFrame;
+		uniform int uTriCount;
+		uniform int uFrame;
+		uniform vec2 uResolution;
+		uniform sampler2D buffer;
+
+		#define DIST_MAX = 10000;
+
+		#define INDIRECT_RAYS 5
 
 
-		varying vec2 lightTexCoord;
-		varying vec3 vPosition;
-		varying vec3 vNormal;
+		varying vec4 vPos;
+		varying vec4 vNormal;
+		varying vec2 vUv2;
 
 		struct Ray { vec3 origin; vec3 direction; };
 
-		#define QUAD_COUNT 5
+		float seed, seed2, haltonIndex;
+		float rnd() { return fract(sin(seed++)*43758.5453123); }
 
-		#define PI               3.14159265358979323
-		#define TWO_PI           6.28318530717958648
-		#define FOUR_PI          12.5663706143591729
-		#define ONE_OVER_PI      0.31830988618379067
-		#define ONE_OVER_TWO_PI  0.15915494309
-		#define ONE_OVER_FOUR_PI 0.07957747154594767
-		#define PI_OVER_TWO      1.57079632679489662
-		#define ONE_OVER_THREE   0.33333333333333333
-		#define E                2.71828182845904524
-		#define INFINITY         1000000.0
+		vec2 hash2() {
+		    return fract(sin(vec2(seed2+=0.1,seed2+=0.1))*vec2(43758.5453123,22578.1459123));
+		}
 
-		vec3 cosWeightedRandomHemisphereDirection( const vec3 n );
-
-		float castRay( vec3 ro, vec3 rd, out vec2 uv, out vec3 col, out vec3 n )
+		// float castRay( vec3 ro, vec3 rd, out vec3 col, out vec3 n)
+		float castRay( vec3 ro, vec3 rd, out vec2 uv, out vec2 uv2, out vec3 col)
 		{
-		    uv = vec2(0.); n = uv.xxx;
+		    uv = vec2(0.);
+		    uv2 = vec2(0.);
 		    
 		    float rt = DIST_MAX;
-		    for( int i = 0; i < QUAD_COUNT; i++ )
+		    for( int i = 0; i < triCount; i++ )
 		    {
-		        vec2 uvi; float rti;
-		        if( rayQuadUV( ro, rd, quads[i].p, quads[i].n, quads[i].scl, uvi, rti ) 
-		          && rti < rt )
+		   		int index = i * 3;
+		        vec2 uvi; 
+		        float rti = TriangleIntersect( ro, rd, position[indices[index]], position[indices[index+1]], position[indices[index+2]] ) ;
+		        vec3 hitPos;
+		        if( rti < rt )
 		        {
-		            uv = quads[i].uv_c + (uvi-.5)*quads[i].uv_wh;
-		            col = GetColor(quads[i].col);
-		            n = quads[i].n;
+		            // uv = quads[i].uv_c + (uvi-.5)*quads[i].uv_wh;
+		            // n = quads[i].n;
+		            hitPos = ro + rd * rti;
+		            
+		            col = vec3(0.);
 		            rt = rti;
 		        }
 		    }
@@ -92,56 +120,76 @@
 		    return rt;
 		}
 
-		struct Wall {
-			vec3[] position;
-			vec3[] normal;
-			int[] index;
-		}
-
-		
-		//---------------------------------------------------------
-		float TriangleIntersect( vec3 v0, vec3 v1, vec3 v2, Ray r )
-		//---------------------------------------------------------
+		float TriangleIntersect(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2 )
 		{
 			vec3 edge1 = v1 - v0;
 			vec3 edge2 = v2 - v0;
-			vec3 tvec = r.origin - v0;
-			vec3 pvec = cross(r.direction, edge2);
+			vec3 tvec = ro - v0;
+			vec3 pvec = cross(rd, edge2);
 			float det = 1.0 / dot(edge1, pvec);
 			float u = dot(tvec, pvec) * det;
 
 			if (u < 0.0 || u > 1.0)
-				return INFINITY;
+				return DIST_MAX;
 
 			vec3 qvec = cross(tvec, edge1);
 
-			float v = dot(r.direction, qvec) * det;
+			float v = dot(rd, qvec) * det;
 
 			if (v < 0.0 || u + v > 1.0)
-				return INFINITY;
+				return DIST_MAX;
 
 			return dot(edge2, qvec) * det;
 		}
 
 
+		vec3 cosWeightedRandomHemisphereDirection( const vec3 n ) {
+		  	vec2 r = hash2();
+		    
+			vec3  uu = normalize( cross( n, vec3(0.0,1.0,1.0) ) );
+			vec3  vv = cross( uu, n );
+			
+			float ra = sqrt(r.y);
+			float rx = ra*cos(6.2831*r.x); 
+			float ry = ra*sin(6.2831*r.x);
+			float rz = sqrt( 1.0-r.y );
+			vec3  rr = vec3( rx*uu + ry*vv + rz*n );
+		    
+		    return normalize( rr );
+		}
+
+
 		void main(){
+			seed = 1.19364353*(gl_fragCoord.x + 40.589*gl_fragCoord.y) + float(uFrame)/60.*12.37929;
+		    haltonIndex = 1.;
+		    
+		    vec2 p = -1.0 + 2.0 * (gl_fragCoord.xy) / uResolution.xy;
+		    p.x *= uResolution.x/uResolution.y;
+		    seed2 = p.x + p.y * 3.43121412313 + fract(1.12345314312*iTime);
 
+		    vec3 addLight = vec3(0.);
 
-			for( int i = 0; i < INDIRECT_RAYS; i++ )
+		    for( int i = 0; i < INDIRECT_RAYS; i++ )
 		    {
 		        // from https://www.shadertoy.com/view/4tcXD2
 		        // doesn't need pdf term - cancels out: http://www.rorydriscoll.com/2009/01/07/better-sampling/
-		        vec3 dir = cosWeightedRandomHemisphereDirection( vNormal );
+		        vec3 dir = cosWeightedRandomHemisphereDirection( vNormal.xyz );
 
 		        vec2 hituv; vec3 col; vec3 n;
-		        float dist = castRay( vPosition, dir, hituv, col, n );
+		        float dist = castRay( vPos, dir, col, n );
 		        if( dist < DIST_MAX && dot( n, dir ) < 0. )
 		        {
-				    vec2 LM_UV_SCALE = LM_RES/iResolution.xy;
-		            addLight += col * textureLod( iChannel0, hituv*LM_UV_SCALE, 0. ).xyz;
+				    // vec2 LM_UV_SCALE = LM_RES/iResolution.xy;
+		            addLight += col * texture2D( buffer, hituv ).xyz;
 		        }
+
+		        addLight /= INDIRECT_RAYS;
 		    }
+
+			gl_FragColor = vec4(0.0,sin(uv2.x),cos(uv2.y),1.0);
 		}
+
+
 	</script>
 <script>
 	var renderer = new THREE.WebGLRenderer();
@@ -152,35 +200,147 @@
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.setSize( width, height );
 	
+	renderer.context.getExtension('OES_texture_float');
+	
 	var container = document.getElementById( 'container' );
 	container.appendChild( renderer.domElement );
 
 	var scene = new THREE.Scene();
 
-	function genPlane(position,rotation, color){
-		color = color | 0x999999;
-		var geometry = new THREE.PlaneBufferGeometry( 4, 4 );
+	if ( !renderer.extensions.get( "OES_texture_float" ) ) {
+		alert( "OES_texture_float is not supported." );
+		// return;
+	}
+
+	if ( !renderer.extensions.get( "EXT_shader_texture_lod" ) ) {
+		alert( "EXT_shader_texture_lod is not supported." );
+		// return;
+	}
+
+	function genPlane(params){
+		// color = params.color | 0x999999;
+		params = params?params:{};
+		console.log(params);
+		color = params.color?params.color: 0xe7e7e7;
+		var geometry = new THREE.BufferGeometry(); 
+		geometry.type = "Plane";
+		var positions = params.positions? params.positions: [
+			2.0, 2.0, -2.0,
+			2.0, -2.0, -2.0,
+			-2.0, -2.0, -2.0,
+			-2.0, 2.0, -2.0,
+		];
+
+		var normals = params.normals? params.normals: [
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+		];
+
+		var uvs = params.uvs? params.uvs: [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+
+		];
+
+		var indices = [
+			0, 2, 1,
+			3, 2, 0
+		];
+
+		geometry.setIndex( indices );
+		geometry.addAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+		geometry.addAttribute( 'normal', new THREE.Float32BufferAttribute( normals, 3 ) );
+		geometry.addAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
+
+
 		var material = new THREE.MeshStandardMaterial( {
 			color: color, 
 			roughness: 0.9
 		} );
-		
-		// console.log(geometry.attributes.uv);
 		var plane = new THREE.Mesh( geometry, material );
-		plane.position.set(position[0],position[1],position[2]);
-		if(rotation)
-			plane.rotation.set(rotation[0],rotation[1],rotation[2]);
 		scene.add( plane );
+
 		return plane;
+
 	}
 
-	var planes = [];
-	planes.push(genPlane([-2, 0, 0],[0, Math.PI / 2, 0]));
-	planes.push(genPlane([0, 0, -2]));
 
+	var planes = [];
+	//back
+	planes.push(genPlane());
+	//right
+	planes.push(genPlane({
+		positions : [
+			-2.0, 2.0, -2.0,
+			-2.0 ,-2.0, -2.0,
+			-2.0, -2.0, 2.0,
+			-2.0, 2.0, 2.0,
+		],
+		normals : [
+			1, 0, 0,
+			1, 0, 0,
+			1, 0, 0,
+			1, 0, 0,			
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
+
+	//top
+	planes.push(genPlane({
+		positions : [
+			2.0, 2.0, 2.0,
+			2.0 ,2.0, -2.0,
+			-2.0, 2.0, -2.0,
+			-2.0, 2.0, 2.0,
+		],
+		normals : [
+			0, -1, 0,
+			0, -1, 0,
+			0, -1, 0,
+			0, -1, 0,
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
+
+
+	//bottom
+	planes.push(genPlane({
+		positions : [
+			2.0, -2.0, -2.0,
+			2.0, -2.0, 2.0,
+			-2.0 ,-2.0, 2.0,
+			-2.0, -2.0, -2.0,
+		],
+		normals : [
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
 	var i = 0;
 	var len = planes.length;
-	//gen uv2
+	// gen uv2
 	for(var n = 0; n < len; n++ ){
 		var plane = planes[n];
 		var uv2 = [];
@@ -215,51 +375,157 @@
 	}
 	animate();
 
-	function initScene(){
-		var children = scene.children;
-		console.log(children);
-		var sceneShader = "";
-		for(var i = 0, length = children.length; i < length; i++){
-			var child = children[i];
-			if(child.type == 'Mesh'){
-				var temp = array(
-					"Wall wall"+i+" = Wall( "" )";
-				);
-			}
-		}
-
-	}
-	function genLightMap(){
-
-		var quadCamera = new THREE.OrthographicCamera( -1, 1, 1, -1, 0, 1 );
-
-		var renderTarget1 = new THREE.WebGLRenderTarget( 512, 512, {
+	function createRenderTarget( width, height ) {
+		return new THREE.WebGLRenderTarget( width, height, {
+			wrapS: THREE.RepeatWrapping,
+			wrapT: THREE.RepeatWrapping,
 			minFilter: THREE.NearestFilter,
 			magFilter: THREE.NearestFilter,
 			format: THREE.RGBAFormat,
 			type: THREE.FloatType,
-			depthBuffer: false,
-			stencilBuffer: false
-		} );
+			stencilBuffer: false,
+			depthBuffer: false
+		});
+	}
 
-		renderTarget1.texture.generateMipmaps = false;
+	function createDataTexture( width, height ) {
+		var data = new Float32Array( width * height * 4 );
 
-		scene.overrideMaterial = new THREE.ShaderMaterial( {
+		for (var k = 0, kl = data.length; k < kl; k += 4) {
+			data[k]	  = 0.0;
+			data[k + 1]  = 0.0;
+			data[k + 2]  = 0.0;
+			data[k + 3]  = 1.0;
+		}
 
-			uniforms: {
+		var texture = new THREE.DataTexture(
+			data,
+			width,
+			height,
+			THREE.RGBAFormat,
+			THREE.FloatType);
 
-			
+		texture.needsUpdate = true;
 
-			},
+		return texture;
+	}
+	var initTexture,readBuffer,writeBuffer,frame,quadCamera;
+
+	function genLightMap(){
+
+		var resWidth = 1024;
+		var resHeight = 1024;
+
+		quadCamera = new THREE.OrthographicCamera( -1, 1, 1, -1, 0, 100 );
+		quadCamera.position.z = 10;
+
+		var initTexture = createDataTexture( resWidth, resHeight );
+		var readBuffer  = createRenderTarget( resWidth, resHeight );
+		readBuffer.texture.generateMipmaps = false;
+		var writeBuffer = readBuffer.clone();
+
+		frame = 0;
+		var uniforms = initScene();
+		uniforms.uFrame = frame;
+		uniforms.uResolution = new THREE.Vector2(resWidth, resHeight);
+		uniforms.buffer = initTexture;
+
+		scene.overrideMaterial = new THREE.ShaderMaterial({
+			uniforms : uniforms,
 
 			vertexShader: document.getElementById( 'vertexShader' ).textContent,
 
 			fragmentShader: document.getElementById( 'fragmentShader' ).textContent
+		})
 
-		} );
+
+		// window.open( lightMapRenderer.domElement.toDataURL( 'image/png' ), 'screenshot' );
+		// console.log(renderTarget.texture);
+		var textureCanvas = document.getElementById('texture');
+
+		// var lightMapRenderer = new THREE.WebGLRenderer({canvas : textureCanvas});
+		// var previewScene = new THREE.Scene();
+
+		// previewScene.add
+		// var cxt = textureCanvas.getContext("2d");
+		// // scene.overrideMaterial = null;
+		// if(renderTarget.texture.image){
+		// 	cxt.drawImage(renderTarget.texture.image, 0, 0);
+		// }
 
 
-		render.render(scene, quadCamera, renderTarget1);
-}
+
+	}
+	var frameMaxCount = 4;
+	function renderLightMap(){
+		if(frame <= frameMaxCount){
+			requestAnimationFrame(renderLightMap);
+
+			scene.overrideMaterial.uniforms.uFrame = frame;
+			scene.overrideMaterial.uniforms.buffer = frame ===0?initTexture:readBuffer;
+
+
+			// renderer.clear();
+			renderer.render(scene, quadCamera, writeBuffer, true);
+
+
+			var tmpBuffer = writeBuffer;
+			writeBuffer = readBuffer;
+			readBuffer = tmpBuffer;
+			frame++;
+		}
+	}
+
+
+	function initScene(){
+
+		var positions = new Float32Array(0);
+		var indices = new Uint16Array(0);
+		var normals = new Float32Array(0);
+		var uv2 = new Float32Array(0);
+
+		for(var i in scene.children){
+			var child = scene.children[i];
+			if(child.type === 'Mesh'){
+
+				var temp = positions;
+				positions = new Float32Array(temp.length + child.geometry.attributes.position.length);
+				positions.set(temp);
+				positions.set(child.geometry.attributes.position.array, temp.length);
+
+				var indicesTemp = indices;
+				indices = new Uint16Array(indicesTemp.length + child.geometry.index.length);
+				indices.set(indicesTemp);
+				indices.set(child.geometry.index.array, indicesTemp.length);
+
+
+				var normalsTemp = normals;
+				normals = new Float32Array(temp.length + child.geometry.attributes.normal.length);
+				normals.set(normalsTemp);
+				normals.set(child.geometry.attributes.normal.array, normalsTemp.length);
+
+
+				var uv2Temp = uv2;
+				uv2 = new Float32Array(uv2Temp.length + child.geometry.attributes.uv2.length);
+				normals.set(uv2Temp);
+				normals.set(child.geometry.attributes.uv2.array, uv2Temp.length);
+
+			}
+		}
+
+		// buffer.addAttribute( 'position', new THREE.BufferAttribute( positions, 3 ) );
+		// buffer.setIndex(indices);
+		// buffer.addAttribute( 'normal', new THREE.BufferAttribute( normals, 3 ) );
+		// buffer.addAttribute( 'uv2', new THREE.BufferAttribute( uv2, 2 ) );
+
+		return {
+			uPositions: positions,
+			uIndices : indices,
+			uNormals : normals,
+			uUv2 : uv2,
+			uTriCount : indices.length / 3,
+		}
+
+	}
 </script>
 </html>
