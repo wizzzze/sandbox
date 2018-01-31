@@ -315,8 +315,11 @@
 			V = (h+0.5)/height;
 			for(var w = 0, wl = width; w < wl, w ++){
 				U = (w+0.5)/width;
-				if(getWorldPosition(U,V)){
-
+				var worldPos = getWorldPosition(U,V)
+				if(worldPos !== false){
+					var normal = 
+					var direction = cosWeightedRandomHemisphereDirection(normal);
+					var rt = castRay(worldPos, )
 				}
 			}
 		}
@@ -327,12 +330,14 @@
 	function getWorldPosition(u, v){
 		for(var i = 0, len = triangles.length; i < triangles; i++){
 			var tri = triangles[i];
+
 			if(u > tri.u2Max ) continue;
 			if(u < tri.u2Min ) continue;
 			if(v > tri.v2Max ) continue;
 			if(v < tri.v2Min ) continue;
 
 			var divisor = (tri.uv20.x - tri.uv22.x) * (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (tri.uv20.y - tri.uv22.y);
+
 			var a = ( (u - tri.uv22.x)* (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (v - tri.uv22.y) ) / divisor;
 			if(a > 1 || a < 0) continue;
 
@@ -341,13 +346,43 @@
 
 			var c = 1-a-b;
 			if(c >= 0 || c <= 1){
-				
+				var tempVec31 = tri.p0.clone().sub(tri.p1);
+				var tempVec32 = tri.p0.clone().sub(tri.p2);
+
+				// var b = (tri.uv22.x*v - (v+tri.uv22.x+u+tri.uv22.y)*tri.uv20.x - u*tri.uv22.y)/(tri.uv22.x*tri.uv21.y - (tri.uv21.y - tri.uv22.x + tri.uv21.x)*tri.uv20.y - tri.uv21.x*tri.uv22.y + tri.uv20.x*tri.uv22.y);
+
+				var b = ((v-tri.uv20.y)*(tri.uv22.x - tri.uv20.x) - (u - tri.uv20.x) * (tri.uv21.y - tri.uv20.y))/( (tri.uv22.x - tri.uv21.x) * (tri.uv21.y - tri.uv20.y) + (tri.uv22.x - tri.uv20.x) * (tri.uv22.y - tri.uv20.y));
+				var a = ( (u - tri.uv20.x ) - b * (tri.uv22.x - tri.uv21.x) ) / (tri.uv22.x - tri.uv20.x);
+
+				var v = tempVec31.addScalar(a).add(tempVec32.addScalar(b));
+				var pos = tri.p0.clone().add(v);
+				console.log(pos);
+				return pos;
+
 			}
-
-
-
-
 		}
+
+		return false;
+	}
+
+	function cosWeightedRandomHemisphereDirection( n ) {
+	  	var r = new THREE.Vector2(Math.sin(4.3758 * Math.random()),Math.sin(2.2578 * Math.random())) ;
+	    
+		var uu = n.clone().cross(new THREE.Vector3(0,1,1));
+		var vv = uu.clone().cross(n);
+		
+		var ra = Math.sqrt(r.y);
+		var rx = ra*Math.cos(6.2831*r.x); 
+		var ry = ra*Math.sin(6.2831*r.x);
+		var rz = Math.sqrt( 1.0-r.y );
+		
+		var rr = uu.addScalar(rx).add(vv.addScalar(ry)).add(n.addScalar(rz)).normalize();
+	    
+	    return rr;
+	}
+
+	function castRay(pos, direction){
+
 	}
 </script>
 </html>
