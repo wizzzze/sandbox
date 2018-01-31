@@ -44,6 +44,17 @@
 	</body>
 
 	<script id="vertexShader" type="x-shader/x-vertex">
+		// precision highp float;
+		// precision highp int;
+		// uniform mat4 modelMatrix;
+		// uniform mat4 modelViewMatrix;
+		// uniform mat4 projectionMatrix;
+		// uniform mat4 viewMatrix;
+		// uniform mat3 normalMatrix;
+		// uniform vec3 cameraPosition;
+		// attribute vec3 position;
+		// attribute vec3 normal;
+		// attribute vec2 uv;
 		attribute vec2 uv2;
 
 		varying vec4 vPos;
@@ -69,15 +80,21 @@
 		uniform float uPositions[48];
 		uniform float uNormals[48];
 		uniform int uIndices[24];
+		uniform float uUv[32];
+		uniform float uUv2[32];
 		// uniform int uFrame;
 		uniform int uTriCount;
 		uniform int uFrame;
 		uniform vec2 uResolution;
 		uniform sampler2D buffer;
 
-		#define DIST_MAX = 10000;
+		const float DIST_MAX = 1000.;
 
-		#define INDIRECT_RAYS 5
+		const int INDIRECT_RAYS = 5;
+		const vec3 LIGHTCOLOR = vec3(16.86, 14.76, 10.2)*1.3*9.;
+		const float LIGHTR = 0.25;
+		const float START_CONV = .2;
+		const float CONV_SPEED = 12.;
 
 
 		varying vec4 vPos;
@@ -94,32 +111,7 @@
 		}
 
 		// float castRay( vec3 ro, vec3 rd, out vec3 col, out vec3 n)
-		float castRay( vec3 ro, vec3 rd, out vec2 uv, out vec2 uv2, out vec3 col)
-		{
-		    uv = vec2(0.);
-		    uv2 = vec2(0.);
-		    
-		    float rt = DIST_MAX;
-		    for( int i = 0; i < triCount; i++ )
-		    {
-		   		int index = i * 3;
-		        vec2 uvi; 
-		        float rti = TriangleIntersect( ro, rd, position[indices[index]], position[indices[index+1]], position[indices[index+2]] ) ;
-		        vec3 hitPos;
-		        if( rti < rt )
-		        {
-		            // uv = quads[i].uv_c + (uvi-.5)*quads[i].uv_wh;
-		            // n = quads[i].n;
-		            hitPos = ro + rd * rti;
-		            
-		            col = vec3(0.);
-		            rt = rti;
-		        }
-		    }
-		    
-		    return rt;
-		}
-
+		
 		float TriangleIntersect(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2 )
 		{
 			vec3 edge1 = v1 - v0;
@@ -142,6 +134,69 @@
 			return dot(edge2, qvec) * det;
 		}
 
+		float castRay( vec3 ro, vec3 rd, out vec2 uv2, out vec3 col, out vec3 n)
+		{
+		    vec2 uv = vec2(0.);
+		    uv2 = vec2(0.);
+		    n = vec3(0.);
+		    
+		    float rt = 1000.;
+		    // for( int i = 0; i < uTriCount; i++ )
+		    for( int i = 0; i < 8; i++ )
+		    {
+		   		int index = i * 3;
+		        int index1 =  i * 3 + 1;
+		        int index2 =  i * 3 + 2;
+		        // vec2 uvi; 
+		        vec3 v0, v1, v2;
+		        int iIndex00 = uIndices[index];
+		        int iIndex01 = iIndex00 + 1;
+		        int iIndex02 = iIndex00 + 2;
+
+		        int iIndex10 = uIndices[index1];
+		        int iIndex11 = iIndex10 + 1;
+		        int iIndex12 = iIndex10 + 2;
+
+		        int iIndex20 = uIndices[index2];
+		        int iIndex21 = iIndex20 + 1;
+		        int iIndex22 = iIndex20 + 2;
+
+		        v0 = vec3(uPositions[iIndex00],uPositions[iIndex01], uPositions[iIndex02]);
+		        v1 = vec3(uPositions[iIndex01],uPositions[iIndex11], uPositions[iIndex12]);
+		        v2 = vec3(uPositions[iIndex20],uPositions[iIndex21], uPositions[iIndex22]);
+		        float rti = TriangleIntersect( ro, rd, v0, v1, v2 ) ;
+		        vec3 hitPos;
+		        if( rti < rt )
+		        {
+		            // uv = quads[i].uv_c + (uvi-.5)*quads[i].uv_wh;
+		            // n = quads[i].n;
+		            hitPos = ro + rd * rti;
+		            float d0 = distance(hitPos, v0);
+					float d1 = distance(hitPos, v1);
+					float d2 = distance(hitPos, v2);
+
+					float sum = d0 + d1 + d2;
+					float coef0 = d0 / sum;
+					float coef1 = d1 / sum;
+					float coef2 = d2 / sum;
+
+					int uvIndex = i * 2;
+
+					uv.x = uUv[uIndices[uvIndex]] * coef0 + uUv[uIndices[uvIndex+1]] * coef1 + uUv[uIndices[uvIndex+2]] * coef2;
+					uv.y = uUv[uIndices[uvIndex+1]] * coef0 + uUv[uIndices[uvIndex+1]+1] * coef1 + uUv[uIndices[uvIndex+2]+2] * coef2;
+
+					uv2.x = uUv2[uIndices[uvIndex]] * coef0 + uUv2[uIndices[uvIndex+1]] * coef1 + uUv2[uIndices[uvIndex+2]] * coef2;
+					uv2.y = uUv2[uIndices[uvIndex+1]] * coef0 + uUv2[uIndices[uvIndex+1]+1] * coef1 + uUv2[uIndices[uvIndex+2]+2] * coef2;
+
+					//col should be sample form the texture by uv
+		            col = vec3(0.);
+		            rt = rti;
+		        }
+		    }
+		    
+		    return rt;
+		}
+
 
 		vec3 cosWeightedRandomHemisphereDirection( const vec3 n ) {
 		  	vec2 r = hash2();
@@ -160,33 +215,55 @@
 
 
 		void main(){
-			seed = 1.19364353*(gl_fragCoord.x + 40.589*gl_fragCoord.y) + float(uFrame)/60.*12.37929;
+			seed = 1.19364353*(gl_FragCoord.x + 40.589*gl_FragCoord.y) + float(uFrame)/60.*12.37929;
 		    haltonIndex = 1.;
 		    
-		    vec2 p = -1.0 + 2.0 * (gl_fragCoord.xy) / uResolution.xy;
+		    vec2 p = -1.0 + 2.0 * (gl_FragCoord.xy) / uResolution.xy;
 		    p.x *= uResolution.x/uResolution.y;
-		    seed2 = p.x + p.y * 3.43121412313 + fract(1.12345314312*iTime);
+		    seed2 = p.x + p.y * 3.43121412313 + fract(1.12345314312*float(uFrame));
 
 		    vec3 addLight = vec3(0.);
 
-		    for( int i = 0; i < INDIRECT_RAYS; i++ )
-		    {
+		    for( int i = 0; i < INDIRECT_RAYS; i++ ){
+		    // for( int i = 0; i < 5; i++ ){
 		        // from https://www.shadertoy.com/view/4tcXD2
 		        // doesn't need pdf term - cancels out: http://www.rorydriscoll.com/2009/01/07/better-sampling/
 		        vec3 dir = cosWeightedRandomHemisphereDirection( vNormal.xyz );
 
-		        vec2 hituv; vec3 col; vec3 n;
-		        float dist = castRay( vPos, dir, col, n );
-		        if( dist < DIST_MAX && dot( n, dir ) < 0. )
+		        vec2 uv2; vec3 col; vec3 n;
+		        float dist = castRay( vPos.xyz, dir, uv2, col, n);
+		        // if( dist < DIST_MAX && dot( n, dir ) < 0. )
+		        if( dist < DIST_MAX )
 		        {
 				    // vec2 LM_UV_SCALE = LM_RES/iResolution.xy;
-		            addLight += col * texture2D( buffer, hituv ).xyz;
+		            // addLight += col * texture2D( buffer, uv2 ).xyz;
+		            addLight += 0.25 * texture2D( buffer, uv2 ).xyz;
 		        }
 
-		        addLight /= INDIRECT_RAYS;
+		        addLight = addLight * float(1/INDIRECT_RAYS);
 		    }
 
-			gl_FragColor = vec4(0.0,sin(uv2.x),cos(uv2.y),1.0);
+		    vec3 lc = vec3(-1.,-1.,0.);
+		   
+		    vec3 lp = LIGHTR*normalize(vec3(rnd(),rnd(),rnd())-.5) + lc;
+		    
+		    vec3 lv = (lp-vPos.xyz);
+		    float ldp = dot(lv,vNormal.xyz);
+		    if( ldp > 0. )
+		    {
+		        vec2 luv; vec3 col, ln;
+		        float first_coll = castRay( vPos.xyz, lv, luv, col, ln ); // lv is NOT normalised..
+			    if( first_coll > 1. ) // lv is NOT normalised..
+			    {
+		            vec3 nlv = normalize(lv);
+		            float cos_a_max = sqrt(1. - clamp(LIGHTR * LIGHTR / dot(lc-vPos.xyz, lc-vPos.xyz), 0., 1.));
+		            float weight = 2. * (1. - cos_a_max);
+
+		            addLight +=  LIGHTCOLOR * (weight * clamp(dot( nlv, vNormal.xyz ), 0., 1.));
+		    	}
+		    }
+
+			gl_FragColor = vec4(mix(texture2D(buffer, vUv2).xyz, addLight, 0.25), 0.);
 		}
 
 
@@ -220,7 +297,6 @@
 	function genPlane(params){
 		// color = params.color | 0x999999;
 		params = params?params:{};
-		console.log(params);
 		color = params.color?params.color: 0xe7e7e7;
 		var geometry = new THREE.BufferGeometry(); 
 		geometry.type = "Plane";
@@ -257,6 +333,7 @@
 		geometry.addAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
 
 
+		console.log(geometry);
 		var material = new THREE.MeshStandardMaterial( {
 			color: color, 
 			roughness: 0.9
@@ -482,6 +559,7 @@
 		var positions = new Float32Array(0);
 		var indices = new Uint16Array(0);
 		var normals = new Float32Array(0);
+		var uv = new Float32Array(0);
 		var uv2 = new Float32Array(0);
 
 		for(var i in scene.children){
@@ -489,26 +567,33 @@
 			if(child.type === 'Mesh'){
 
 				var temp = positions;
+				var indicesOffset = temp.length;
 				positions = new Float32Array(temp.length + child.geometry.attributes.position.length);
 				positions.set(temp);
 				positions.set(child.geometry.attributes.position.array, temp.length);
-
-				var indicesTemp = indices;
-				indices = new Uint16Array(indicesTemp.length + child.geometry.index.length);
-				indices.set(indicesTemp);
-				indices.set(child.geometry.index.array, indicesTemp.length);
-
 
 				var normalsTemp = normals;
 				normals = new Float32Array(temp.length + child.geometry.attributes.normal.length);
 				normals.set(normalsTemp);
 				normals.set(child.geometry.attributes.normal.array, normalsTemp.length);
 
+				var uvTemp = uv;
+				uv = new Float32Array(uvTemp.length + child.geometry.attributes.uv.length);
+				uv.set(uvTemp);
+				uv.set(child.geometry.attributes.uv.array, uvTemp.length);
 
 				var uv2Temp = uv2;
 				uv2 = new Float32Array(uv2Temp.length + child.geometry.attributes.uv2.length);
-				normals.set(uv2Temp);
-				normals.set(child.geometry.attributes.uv2.array, uv2Temp.length);
+				uv2.set(uv2Temp);
+				uv2.set(child.geometry.attributes.uv2.array, uv2Temp.length);
+
+
+				var indicesTemp = indices;
+				indices = new Uint16Array(indicesTemp.length + child.geometry.index.length);
+				indices.set(indicesTemp);
+				for(var n = 0, len =  child.geometry.index.length; n < len; n++){
+					indices.set([child.geometry.index.array[n]+indicesOffset], indicesTemp.length + n);
+				}
 
 			}
 		}
@@ -518,10 +603,12 @@
 		// buffer.addAttribute( 'normal', new THREE.BufferAttribute( normals, 3 ) );
 		// buffer.addAttribute( 'uv2', new THREE.BufferAttribute( uv2, 2 ) );
 
+		console.log(indices.length / 3);
 		return {
 			uPositions: positions,
 			uIndices : indices,
 			uNormals : normals,
+			uUv : uv,
 			uUv2 : uv2,
 			uTriCount : indices.length / 3,
 		}

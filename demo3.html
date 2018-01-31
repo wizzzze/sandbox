@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Light Map Generation</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
+		<style>
+			html, body {
+				width: 100%;
+				height: 100%;
+				font-family: Monospace;
+				background-color: #000;
+				color: #000;
+				margin: 0px;
+				overflow: hidden;
+			}
+			
+			#info {
+				position: absolute;
+				top: 5px;
+				width: 100%;
+				text-align: center;
+				color: #ffffff;
+			}		
+			#texture{
+				position: absolute;
+				width:512px;
+				height:512px;
+				bottom:0;
+				left:0;
+				z-index:2;
+				background-color:#000;
+			}
+			
+		</style>
+	</head>
+	<body>
+
+		<div id="container"> </div>
+		<canvas id="texture">
+		</canvas>
+		<script src="js/three.min.js"> </script>
+		<script src="js/EditorControls.js"> </script>
+	</body>
+
+	
+<script>
+	var renderer = new THREE.WebGLRenderer();
+	renderer.setClearColor(0x999999);
+	// renderer.autoClear = false;
+	var width = window.innerWidth;
+	var height = window.innerHeight;
+	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setSize( width, height );
+	
+	renderer.context.getExtension('OES_texture_float');
+	
+	var container = document.getElementById( 'container' );
+	container.appendChild( renderer.domElement );
+
+	var scene = new THREE.Scene();
+
+	if ( !renderer.extensions.get( "OES_texture_float" ) ) {
+		alert( "OES_texture_float is not supported." );
+		// return;
+	}
+
+	if ( !renderer.extensions.get( "EXT_shader_texture_lod" ) ) {
+		alert( "EXT_shader_texture_lod is not supported." );
+		// return;
+	}
+
+	function genPlane(params){
+		// color = params.color | 0x999999;
+		params = params?params:{};
+		color = params.color?params.color: 0xe7e7e7;
+		var geometry = new THREE.BufferGeometry(); 
+		geometry.type = "Plane";
+		var positions = params.positions? params.positions: [
+			2.0, 2.0, -2.0,
+			2.0, -2.0, -2.0,
+			-2.0, -2.0, -2.0,
+			-2.0, 2.0, -2.0,
+		];
+
+		var normals = params.normals? params.normals: [
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+			0.0, 0.0 , 1.0,
+		];
+
+		var uvs = params.uvs? params.uvs: [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+
+		];
+
+		var indices = [
+			0, 2, 1,
+			3, 2, 0
+		];
+
+		geometry.setIndex( indices );
+		geometry.addAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+		geometry.addAttribute( 'normal', new THREE.Float32BufferAttribute( normals, 3 ) );
+		geometry.addAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
+
+
+		console.log(geometry);
+		var material = new THREE.MeshStandardMaterial( {
+			color: color, 
+			roughness: 0.9
+		} );
+		var plane = new THREE.Mesh( geometry, material );
+		scene.add( plane );
+
+		return plane;
+
+	}
+
+
+	var planes = [];
+	//back
+	planes.push(genPlane());
+	//right
+	planes.push(genPlane({
+		positions : [
+			-2.0, 2.0, -2.0,
+			-2.0 ,-2.0, -2.0,
+			-2.0, -2.0, 2.0,
+			-2.0, 2.0, 2.0,
+		],
+		normals : [
+			1, 0, 0,
+			1, 0, 0,
+			1, 0, 0,
+			1, 0, 0,			
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
+
+	//top
+	planes.push(genPlane({
+		positions : [
+			2.0, 2.0, 2.0,
+			2.0 ,2.0, -2.0,
+			-2.0, 2.0, -2.0,
+			-2.0, 2.0, 2.0,
+		],
+		normals : [
+			0, -1, 0,
+			0, -1, 0,
+			0, -1, 0,
+			0, -1, 0,
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
+
+
+	//bottom
+	planes.push(genPlane({
+		positions : [
+			2.0, -2.0, -2.0,
+			2.0, -2.0, 2.0,
+			-2.0 ,-2.0, 2.0,
+			-2.0, -2.0, -2.0,
+		],
+		normals : [
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+			0, 1, 0,
+		],
+		uvs : [
+			1.0, 0.0,
+			1.0, 1.0,
+			0.0, 1.0,
+			0.0, 0.0
+		],
+	}));
+	var i = 0;
+	var len = planes.length;
+	// gen uv2
+	for(var n = 0; n < len; n++ ){
+		var plane = planes[n];
+		var uv2 = [];
+		//gen uv;
+		var uv = plane.geometry.attributes.uv;
+		var index = 0;
+		for(var m = 0, length = uv.count; m < length ; m ++){
+			//just scale x component
+			uv2.push((i + uv.array[index]) / len);
+			index++;
+			uv2.push(uv.array[index]);
+			index++;
+		}
+		plane.geometry.addAttribute( 'uv2', new THREE.Float32BufferAttribute( uv2, 2 ) );
+		// plane.geometry.attributes.position.needsUpdate = true;
+		i++;
+	}
+
+	var light = new THREE.PointLight( 0xffffff, 1, 100 );
+	light.position.set( 0, 1, 0 );
+	scene.add( light );
+
+
+
+	var camera = new THREE.PerspectiveCamera(45, width / height, 1, 1000);
+	var controls = new THREE.EditorControls(camera, renderer.domElement);
+
+	camera.position.set(0,0,10);
+	function animate() {
+		requestAnimationFrame( animate );
+		renderer.render( scene, camera );
+	}
+	animate();
+
+
+
+	var triangles = [];
+	function initScene(){
+		
+		for(var i in scene.children){
+			var child = scene.children[i];
+			if(child.type === 'Mesh'){
+
+
+				var indicesTemp = child.geometry.index.array.values();
+				for(var n = 0, len = child.geometry.index.array.length / 3; n < len; n++){
+
+					var tri = new Tri();
+
+					var i0 = indicesTemp.next().value;
+					tri.p0 = new THREE.Vector3(child.geometry.attributes.position.array[i0*3],child.geometry.attributes.position.array[i0*3+1],child.geometry.attributes.position.array[i0*3+2]);
+					tri.n0 = new THREE.Vector3(child.geometry.attributes.normal.array[i0*3],child.geometry.attributes.normal.array[i0*3+1],child.geometry.attributes.normal.array[i0*3+2]);
+					tri.uv0 = new THREE.Vector2(child.geometry.attributes.uv.array[i0*2],child.geometry.attributes.uv.array[i0*2+1]);
+					tri.uv20 = new THREE.Vector2(child.geometry.attributes.uv2.array[i0*2],child.geometry.attributes.uv2.array[i0*2+1]);
+
+					var u2Max = u2Min = tri.uv20.x;
+					var v2Max = v2Min = tri.uv20.y;
+
+					var i1 = indicesTemp.next().value;
+					tri.p1 = new THREE.Vector3(child.geometry.attributes.position.array[i1*3],child.geometry.attributes.position.array[i1*3+1],child.geometry.attributes.position.array[i1*3+2]);
+					tri.n1 = new THREE.Vector3(child.geometry.attributes.normal.array[i1*3],child.geometry.attributes.normal.array[i1*3+1],child.geometry.attributes.normal.array[i1*3+2]);
+					tri.uv1 = new THREE.Vector2(child.geometry.attributes.uv.array[i1*2],child.geometry.attributes.uv.array[i1*2+1]);
+					tri.uv21 = new THREE.Vector2(child.geometry.attributes.uv2.array[i1*2],child.geometry.attributes.uv2.array[i1*2+1]);
+					if(tri.uv21.x > u2Max) u2Max = tri.uv21.x;
+					if(tri.uv21.x < u2Min) u2Min = tri.uv21.x;
+					if(tri.uv21.y > v2Max) v2Max = tri.uv21.y;
+					if(tri.uv21.y < v2Max) v2Max = tri.uv21.y;
+
+					var i2 = indicesTemp.next().value;
+					tri.p2 = new THREE.Vector3(child.geometry.attributes.position.array[i2*3],child.geometry.attributes.position.array[i2*3+1],child.geometry.attributes.position.array[i2*3+2]);
+					tri.n2 = new THREE.Vector3(child.geometry.attributes.normal.array[i2*3],child.geometry.attributes.normal.array[i2*3+1],child.geometry.attributes.normal.array[i2*3+2]);
+					tri.uv2 = new THREE.Vector2(child.geometry.attributes.uv.array[i2*2],child.geometry.attributes.uv.array[i2*2+1]);
+					tri.uv22 = new THREE.Vector2(child.geometry.attributes.uv2.array[i2*2],child.geometry.attributes.uv2.array[i2*2+1]);
+
+					if(tri.uv22.x > u2Max) u2Max = tri.uv22.x;
+					if(tri.uv22.x < u2Min) u2Min = tri.uv22.x;
+					if(tri.uv22.y > v2Max) v2Max = tri.uv22.y;
+					if(tri.uv22.y < v2Max) v2Max = tri.uv22.y;
+
+					tri.u2Max = u2Max;
+					tri.u2Min = u2Min;
+					tri.v2Max = v2Max;
+					tri.v2Min = v2Min;
+
+
+				}
+
+			}
+		}
+	}
+
+	function Tri(){
+
+	}
+
+	function genLightMap(texture){
+		if(!texture){
+			texture = new THREE.DataTexture(
+				data,
+				width,
+				height,
+				THREE.RGBAFormat,
+				THREE.FloatType);
+			}
+
+			texture.needsUpdate = true;
+		}
+
+
+		var width = 512, height = 512;
+
+		var data = new Float32Array( width * height * 4 );
+
+		initScene();
+
+		var U,V;
+
+		for(var h = 0, hl = height; h < hl, h ++){
+			V = (h+0.5)/height;
+			for(var w = 0, wl = width; w < wl, w ++){
+				U = (w+0.5)/width;
+				if(getWorldPosition(U,V)){
+
+				}
+			}
+		}
+
+		
+	}
+
+	function getWorldPosition(u, v){
+		for(var i = 0, len = triangles.length; i < triangles; i++){
+			var tri = triangles[i];
+			if(u > tri.u2Max ) continue;
+			if(u < tri.u2Min ) continue;
+			if(v > tri.v2Max ) continue;
+			if(v < tri.v2Min ) continue;
+
+			var divisor = (tri.uv20.x - tri.uv22.x) * (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (tri.uv20.y - tri.uv22.y);
+			var a = ( (u - tri.uv22.x)* (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (v - tri.uv22.y) ) / divisor;
+			if(a > 1 || a < 0) continue;
+
+			var b = ( (u - tri.uv22.x)* (tri.uv22.y - tri.uv20.y) + (tri.uv20.x - tri.uv22.x) * (v - tri.uv22.y) ) / divisor;
+			if(b > 1 || b < 0) continue;
+
+			var c = 1-a-b;
+			if(c >= 0 || c <= 1){
+				
+			}
+
+
+
+
+		}
+	}
+</script>
+</html>
