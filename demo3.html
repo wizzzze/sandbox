@@ -319,7 +319,7 @@
 				if(worldPos !== false){
 					var normal = 
 					var direction = cosWeightedRandomHemisphereDirection(normal);
-					var rt = castRay(worldPos, )
+					var rt = castRay(worldPos, direction);
 				}
 			}
 		}
@@ -381,8 +381,44 @@
 	    return rr;
 	}
 
-	function castRay(pos, direction){
 
+	var DIST_MAX = 1000;
+
+	function castRay(pos, direction){
+		var rt = DIST_MAX;
+		for(var i = 0, len = triangles.length; i < triangles; i++){
+			var tri = triangles[i];
+			var rti = TriangleIntersect(pos, direction, tri);
+			if(rti < rt){
+				rt = rti;
+
+			}
+			
+		}
+
+	}
+	
+
+	function TriangleIntersect(ro, rd, tri)
+	{
+		var edge1 = tri.p1.sub(tri.p0);
+		var edge2 = tri.p2.sub(tri.p0);
+		var tvec = ro.sub(tri.p0);
+		var pvec = rd.clone().cross(edge2);
+		var det = 1.0 / edge1.clone().dot(pvec);
+		float u = tvec.clone().dot(pvec) * det;
+
+		if (u < 0.0 || u > 1.0)
+			return DIST_MAX;
+
+		var qvec = tvec.clone().cross( edge1 );
+
+		var v = rd.clone().dot( qvec) * det;
+
+		if (v < 0.0 || u + v > 1.0)
+			return DIST_MAX;
+
+		return edge2.dot(qvec) * det;
 	}
 </script>
 </html>
