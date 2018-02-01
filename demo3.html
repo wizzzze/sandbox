@@ -317,7 +317,7 @@
 				U = (w+0.5)/width;
 				var worldPos = getWorldPosition(U,V)
 				if(worldPos !== false){
-					var normal = 
+					var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
 					var direction = cosWeightedRandomHemisphereDirection(normal);
 					var rt = castRay(worldPos, direction);
 				}
