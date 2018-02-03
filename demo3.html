@@ -70,6 +70,10 @@
 		// return;
 	}
 
+	ctx = document.getElementById('texture').getContext('2d');
+	var imageData = ctx.getImageData(0, 0, 512, 512);
+	var cData = imageData.data;
+
 	function genPlane(params){
 		// color = params.color | 0x999999;
 		params = params?params:{};
@@ -109,7 +113,6 @@
 		geometry.addAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
 
 
-		console.log(geometry);
 		var material = new THREE.MeshStandardMaterial( {
 			color: color, 
 			roughness: 0.9
@@ -208,6 +211,7 @@
 			index++;
 		}
 		plane.geometry.addAttribute( 'uv2', new THREE.Float32BufferAttribute( uv2, 2 ) );
+		// plane.geometry.addAttribute( 'vUv2', new THREE.Float32BufferAttribute( uv2, 2 ) );
 		// plane.geometry.attributes.position.needsUpdate = true;
 		i++;
 	}
@@ -231,28 +235,33 @@
 
 
 	var triangles = [];
+	var lights = [];
 	function initScene(){
 		
 		for(var i in scene.children){
 			var child = scene.children[i];
 			if(child.type === 'Mesh'){
-
-
+				// var indicesTemp = child.geometry.index.array;
 				var indicesTemp = child.geometry.index.array.values();
 				for(var n = 0, len = child.geometry.index.array.length / 3; n < len; n++){
 
+					var offset = n * 3;
 					var tri = new Tri();
 
+					// var i0 = indicesTemp[offset];
 					var i0 = indicesTemp.next().value;
+
 					tri.p0 = new THREE.Vector3(child.geometry.attributes.position.array[i0*3],child.geometry.attributes.position.array[i0*3+1],child.geometry.attributes.position.array[i0*3+2]);
 					tri.n0 = new THREE.Vector3(child.geometry.attributes.normal.array[i0*3],child.geometry.attributes.normal.array[i0*3+1],child.geometry.attributes.normal.array[i0*3+2]);
 					tri.uv0 = new THREE.Vector2(child.geometry.attributes.uv.array[i0*2],child.geometry.attributes.uv.array[i0*2+1]);
 					tri.uv20 = new THREE.Vector2(child.geometry.attributes.uv2.array[i0*2],child.geometry.attributes.uv2.array[i0*2+1]);
 
-					var u2Max = u2Min = tri.uv20.x;
-					var v2Max = v2Min = tri.uv20.y;
+					var u2Max = tri.uv20.x, u2Min = tri.uv20.x;
+					var v2Max = tri.uv20.y, v2Min = tri.uv20.y;
 
+					// var i1 = indicesTemp[offset+1];
 					var i1 = indicesTemp.next().value;
+
 					tri.p1 = new THREE.Vector3(child.geometry.attributes.position.array[i1*3],child.geometry.attributes.position.array[i1*3+1],child.geometry.attributes.position.array[i1*3+2]);
 					tri.n1 = new THREE.Vector3(child.geometry.attributes.normal.array[i1*3],child.geometry.attributes.normal.array[i1*3+1],child.geometry.attributes.normal.array[i1*3+2]);
 					tri.uv1 = new THREE.Vector2(child.geometry.attributes.uv.array[i1*2],child.geometry.attributes.uv.array[i1*2+1]);
@@ -260,9 +269,11 @@
 					if(tri.uv21.x > u2Max) u2Max = tri.uv21.x;
 					if(tri.uv21.x < u2Min) u2Min = tri.uv21.x;
 					if(tri.uv21.y > v2Max) v2Max = tri.uv21.y;
-					if(tri.uv21.y < v2Max) v2Max = tri.uv21.y;
+					if(tri.uv21.y < v2Min) v2Min = tri.uv21.y;
 
+					// var i2 = indicesTemp[offset+1];
 					var i2 = indicesTemp.next().value;
+
 					tri.p2 = new THREE.Vector3(child.geometry.attributes.position.array[i2*3],child.geometry.attributes.position.array[i2*3+1],child.geometry.attributes.position.array[i2*3+2]);
 					tri.n2 = new THREE.Vector3(child.geometry.attributes.normal.array[i2*3],child.geometry.attributes.normal.array[i2*3+1],child.geometry.attributes.normal.array[i2*3+2]);
 					tri.uv2 = new THREE.Vector2(child.geometry.attributes.uv.array[i2*2],child.geometry.attributes.uv.array[i2*2+1]);
@@ -271,16 +282,19 @@
 					if(tri.uv22.x > u2Max) u2Max = tri.uv22.x;
 					if(tri.uv22.x < u2Min) u2Min = tri.uv22.x;
 					if(tri.uv22.y > v2Max) v2Max = tri.uv22.y;
-					if(tri.uv22.y < v2Max) v2Max = tri.uv22.y;
+					if(tri.uv22.y < v2Min) v2Min = tri.uv22.y;
 
 					tri.u2Max = u2Max;
 					tri.u2Min = u2Min;
 					tri.v2Max = v2Max;
 					tri.v2Min = v2Min;
 
+					triangles.push(tri);
 
 				}
 
+			}else if(child.type === 'PointLight'){
+				lights.push(child);
 			}
 		}
 	}
@@ -289,46 +303,183 @@
 
 	}
 
-	function genLightMap(texture){
-		if(!texture){
-			texture = new THREE.DataTexture(
-				data,
-				width,
-				height,
-				THREE.RGBAFormat,
-				THREE.FloatType);
-			}
+	//pass count
+	var MAX_PASS = 4;
+	//sample count
+	var MAX_SAMPLE = 4;
 
-			texture.needsUpdate = true;
-		}
+	var passCount = 0;
 
-
-		var width = 512, height = 512;
-
-		var data = new Float32Array( width * height * 4 );
+	function getLightMap(){
 
 		initScene();
+		console.log(triangles);
+		var readBuffer =  null;
+		while(passCount < MAX_PASS){
+			readBuffer = genLightMap(readBuffer);
+			passCount++;
+		}
+
+		var lightMap = new THREE.DataTexture(
+			readBuffer,
+			width,
+			height,
+			THREE.RGBAFormat,
+			THREE.FloatType
+		);
+
+		for(var i = 0, len = planes.length; i < len; i++){
+			var plane = planes[i];
+			plane.material.lightMap = lightMap;
+			plane.material.lightMapIntensity = 100;
+			plane.material.needsUpdate = true;
+
+
+		}
+
+		scene.remove(light);
+
+		ctx = document.getElementById('texture').getContext('2d');
+		var imageData = ctx.getImageData(0, 0, 512, 512);
+		var cData = imageData.data;
+
+		for(var y = 0; y < readBuffer.length; y++){
+				
+			cData[y] =  readBuffer[y] * 255 * 10;
+			// ctx.putImageData(imageData, 0 ,0 ,0 , 0, width, height);
+
+			
+		}
+		
+		ctx.putImageData(imageData, 0 ,0 , 0 ,0 ,128, 128);
+		console.log(lightMap);
+		
+	}
+
+	function genLightMap(readBuffer){
+		var width = 128, height = 128;
+
+		var writeBuffer = new Float32Array( width * height * 4 );
+		// if(!readBuffer){
+		// 	readBuffer = new Float32Array( width * height * 4 )
+			
+			// texture.empty = true;
+			// texture.needsUpdate = true;
+		// }
 
 		var U,V;
 
-		for(var h = 0, hl = height; h < hl, h ++){
+		for(var h = 0, hl = height; h < hl; h ++){
 			V = (h+0.5)/height;
-			for(var w = 0, wl = width; w < wl, w ++){
+			for(var w = 0, wl = width; w < wl; w ++){
 				U = (w+0.5)/width;
-				var worldPos = getWorldPosition(U,V)
+				var addLight = new THREE.Vector4();
+
+				var worldPos = getWorldPosition(U,V);
 				if(worldPos !== false){
-					var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
-					var direction = cosWeightedRandomHemisphereDirection(normal);
-					var rt = castRay(worldPos, direction);
+					var normal = worldPos.normal;
+					if(readBuffer !== null){
+						var count = 0;
+						while(count < MAX_SAMPLE){
+							var direction = cosWeightedRandomHemisphereDirection(normal);
+							var intersection = castRay(worldPos.pos, direction);
+							if(intersection !== null){
+								var tri = intersection.tri;
+								var hitPos = intersection.hitPos;
+
+					            var d0 = hitPos.distanceTo(tri.p0);
+								var d1 = hitPos.distanceTo(tri.p1);
+								var d2 = hitPos.distanceTo(tri.p2);
+
+								var sum = d0 + d1 + d2;
+								var coef0 = d0 / sum;
+								var coef1 = d1 / sum;
+								var coef2 = d2 / sum;
+
+								uv2 = tri.uv20.clone().multiplyScalar(coef0).add(tri.uv21.clone().multiplyScalar(coef1)).add(tri.uv22.clone().multiplyScalar(coef2));
+
+								
+								var offsetWidth = uv2.x * width;
+								var offsetHeight = uv2.y * height;
+								var readoffset = Math.round((offsetHeight * width + offsetWidth)) * 4;
+
+								
+
+								addLight.add(new THREE.Vector4(readBuffer[readoffset] , readBuffer[++readoffset], readBuffer[++readoffset], readBuffer[++readoffset]));
+
+								
+							}
+							count++;
+						}
+						addLight.multiplyScalar(10/MAX_SAMPLE);
+
+					}
+
+
+					for(var i = 0, length = lights.length; i < length; i++){
+						var light = lights[i];
+						var lc = light.position;
+
+						var lp = (new THREE.Vector3(rnd(), rnd(), rnd()- 0.05)).multiplyScalar(light.intensity).add(lc);
+				
+					    var lv = lp.sub(worldPos.pos);
+					    var ldp = lv.clone().dot(worldPos.normal);
+					    if( ldp > 0. )
+					    {
+					        var luv; 
+					        var col, ln;
+					        var intersection = castRay( worldPos.pos, lv.normalize());
+					        // console.log(intersection);
+						    if( intersection === null )
+						    {	
+						    	// console.log(lc);
+						    	var lcv = lc.clone().sub(worldPos.pos);
+						    	var dis = lcv.clone().dot(lcv);
+						    	var tmp = Math.pow(light.intensity, 2) / dis;
+						    	if(tmp > 1){
+						    		tmp = 1;
+						    	}else if(tmp < 0){
+						    		tmp = 0;
+						    	}
+
+					            var cos_a_max = Math.sqrt(1 - tmp);
+					            var weight = 2 * (1 - cos_a_max);
+					            var lightColor = new THREE.Vector4(light.color.r, light.color.g, light.color.b, 1);
+
+					            var dln = lv.normalize().dot(worldPos.normal);
+					            if(dln < 0)
+					            	dln = 0;
+					            else if(dln > 1){
+					            	dln = 1;
+					            }
+
+					            addLight.add(lightColor.multiplyScalar(weight * dln));
+					    	}
+					    }
+
+					    // console.log(addLight);
+					    var offset = ((h * width) + w) * 4;
+					    writeBuffer[offset] = addLight.x;
+					    writeBuffer[++offset] = addLight.y;
+					    writeBuffer[++offset] = addLight.z;
+					    writeBuffer[++offset] = 1;
+
+					}
 				}
 			}
 		}
 
-		
+		return writeBuffer;
+
+		// texture.empty = false;
 	}
 
-	function getWorldPosition(u, v){
-		for(var i = 0, len = triangles.length; i < triangles; i++){
+	function rnd(){
+		return Math.abs(Math.sin(Math.random()));
+	}
+
+	function getWorldPosition2(u, v){
+		for(var i = 0, len = triangles.length; i < len; i++){
 			var tri = triangles[i];
 
 			if(u > tri.u2Max ) continue;
@@ -345,20 +496,90 @@
 			if(b > 1 || b < 0) continue;
 
 			var c = 1-a-b;
-			if(c >= 0 || c <= 1){
-				var tempVec31 = tri.p0.clone().sub(tri.p1);
-				var tempVec32 = tri.p0.clone().sub(tri.p2);
+			if(c >= 0 && c <= 1){
+
+				console.log(u);
+				console.log(v);
+				console.log(tri);
+
+				var tempVec31 = tri.p1.clone().sub(tri.p0).normalize();
+				var tempVec32 = tri.p2.clone().sub(tri.p0).normalize();
+
+				var denominator = (tri.uv20.y - tri.uv22.y) * (tri.uv21.x - tri.uv22.x) + (tri.uv21.y - tri.uv22.y) * (tri.uv20.x - tri.uv22.x);
+
+				// var duvx = u - tri.uv20.x;
+				// var duvy = v - tri.uv20.y;
 
 				// var b = (tri.uv22.x*v - (v+tri.uv22.x+u+tri.uv22.y)*tri.uv20.x - u*tri.uv22.y)/(tri.uv22.x*tri.uv21.y - (tri.uv21.y - tri.uv22.x + tri.uv21.x)*tri.uv20.y - tri.uv21.x*tri.uv22.y + tri.uv20.x*tri.uv22.y);
 
-				var b = ((v-tri.uv20.y)*(tri.uv22.x - tri.uv20.x) - (u - tri.uv20.x) * (tri.uv21.y - tri.uv20.y))/( (tri.uv22.x - tri.uv21.x) * (tri.uv21.y - tri.uv20.y) + (tri.uv22.x - tri.uv20.x) * (tri.uv22.y - tri.uv20.y));
-				var a = ( (u - tri.uv20.x ) - b * (tri.uv22.x - tri.uv21.x) ) / (tri.uv22.x - tri.uv20.x);
+				// var b = ((v-tri.uv20.y)*(tri.uv22.x - tri.uv20.x) - (u - tri.uv20.x) * (tri.uv21.y - tri.uv20.y))/( (tri.uv22.x - tri.uv21.x) * (tri.uv21.y - tri.uv20.y) + (tri.uv22.x - tri.uv20.x) * (tri.uv22.y - tri.uv20.y));
+				// var a;
+				// if(tri.uv22.x - tri.uv20.x !== 0){
+				// 	a = ( (u - tri.uv20.x ) - b * (tri.uv22.x - tri.uv21.x) ) / (tri.uv22.x - tri.uv20.x);
+				// }else{
+				// 	a = 0;
+				// }
+				// console.log(a);
 
-				var v = tempVec31.addScalar(a).add(tempVec32.addScalar(b));
+				var v = tempVec31.multiplyScalar(a).add(tempVec32.multiplyScalar(b));
 				var pos = tri.p0.clone().add(v);
-				console.log(pos);
-				return pos;
+				// console.log(pos);
+				var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
+				return {pos : pos, normal : normal};
+			}
+		}
 
+		return false;
+	}
+
+		function getWorldPosition(u, v){
+		for(var i = 0, len = triangles.length; i < len; i++){
+			var tri = triangles[i];
+
+			if(u > tri.u2Max ) continue;
+			if(u < tri.u2Min ) continue;
+			if(v > tri.v2Max ) continue;
+			if(v < tri.v2Min ) continue;
+
+			var divisor = (tri.uv20.x - tri.uv22.x) * (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (tri.uv20.y - tri.uv22.y);
+
+			var a = ( (u - tri.uv22.x)* (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (v - tri.uv22.y) ) / divisor;
+			if(a > 1 || a < 0) continue;
+
+			var b = ( (u - tri.uv22.x)* (tri.uv22.y - tri.uv20.y) + (tri.uv20.x - tri.uv22.x) * (v - tri.uv22.y) ) / divisor;
+			if(b > 1 || b < 0) continue;
+
+			var c = 1-a-b;
+			if(c >= 0 && c <= 1){
+
+				console.log(u);
+				console.log(v);
+				console.log(tri);
+
+				var tempVec31 = tri.p1.clone().sub(tri.p0).normalize();
+				var tempVec32 = tri.p2.clone().sub(tri.p0).normalize();
+
+				var denominator = (tri.uv20.y - tri.uv22.y) * (tri.uv21.x - tri.uv22.x) + (tri.uv21.y - tri.uv22.y) * (tri.uv20.x - tri.uv22.x);
+
+				// var duvx = u - tri.uv20.x;
+				// var duvy = v - tri.uv20.y;
+
+				// var b = (tri.uv22.x*v - (v+tri.uv22.x+u+tri.uv22.y)*tri.uv20.x - u*tri.uv22.y)/(tri.uv22.x*tri.uv21.y - (tri.uv21.y - tri.uv22.x + tri.uv21.x)*tri.uv20.y - tri.uv21.x*tri.uv22.y + tri.uv20.x*tri.uv22.y);
+
+				// var b = ((v-tri.uv20.y)*(tri.uv22.x - tri.uv20.x) - (u - tri.uv20.x) * (tri.uv21.y - tri.uv20.y))/( (tri.uv22.x - tri.uv21.x) * (tri.uv21.y - tri.uv20.y) + (tri.uv22.x - tri.uv20.x) * (tri.uv22.y - tri.uv20.y));
+				// var a;
+				// if(tri.uv22.x - tri.uv20.x !== 0){
+				// 	a = ( (u - tri.uv20.x ) - b * (tri.uv22.x - tri.uv21.x) ) / (tri.uv22.x - tri.uv20.x);
+				// }else{
+				// 	a = 0;
+				// }
+				// console.log(a);
+
+				var v = tempVec31.multiplyScalar(a).add(tempVec32.multiplyScalar(b));
+				var pos = tri.p0.clone().add(v);
+				// console.log(pos);
+				var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
+				return {pos : pos, normal : normal};
 			}
 		}
 
@@ -376,7 +597,7 @@
 		var ry = ra*Math.sin(6.2831*r.x);
 		var rz = Math.sqrt( 1.0-r.y );
 		
-		var rr = uu.addScalar(rx).add(vv.addScalar(ry)).add(n.addScalar(rz)).normalize();
+		var rr = uu.multiplyScalar(rx).add(vv.multiplyScalar(ry)).add(n.multiplyScalar(rz)).normalize();
 	    
 	    return rr;
 	}
@@ -386,15 +607,28 @@
 
 	function castRay(pos, direction){
 		var rt = DIST_MAX;
-		for(var i = 0, len = triangles.length; i < triangles; i++){
+		var uv2 = null;
+		var hitPos = null;
+		var hitTri = null;
+		for(var i = 0, len = triangles.length; i < len; i++){
 			var tri = triangles[i];
 			var rti = TriangleIntersect(pos, direction, tri);
+			// console.log(rti);
 			if(rti < rt){
-				rt = rti;
+ 				hitPos = direction.clone().multiplyScalar(rti).add(pos);
 
+				rt = rti;
+				hitTri = tri;
 			}
-			
 		}
+		if(rt < DIST_MAX){
+			return {
+				rt : rt,
+				tri : hitTri,
+				hitPos : hitPos
+			};
+		}
+		return null;
 
 	}
 	
@@ -406,7 +640,7 @@
 		var tvec = ro.sub(tri.p0);
 		var pvec = rd.clone().cross(edge2);
 		var det = 1.0 / edge1.clone().dot(pvec);
-		float u = tvec.clone().dot(pvec) * det;
+		var u = tvec.clone().dot(pvec) * det;
 
 		if (u < 0.0 || u > 1.0)
 			return DIST_MAX;

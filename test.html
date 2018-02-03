@@ -51,7 +51,11 @@
 	renderer.setPixelRatio(window.devicePixelRatio);
 	renderer.setSize( width, height );
 
-	
+	var test = new THREE.Vector4(0,0,0,0);
+	var test2 = new THREE.Vector4(1,1,1,1);
+	var test3 = test.add(test2);
+	console.log(test3);
+
 	renderer.context.getExtension('OES_texture_float');
 	
 	var container = document.getElementById( 'container' );
@@ -121,11 +125,13 @@
 			height,
 			THREE.RGBAFormat,
 			THREE.FloatType);
+		texture.flipY = true;
 
 		texture.needsUpdate = true;
 
 
-		ctx.putImageData(imageData, 0 ,0 ,0 , 0, width, height);
+		ctx.putImageData(imageData, 0 ,0 );
+		// ctx.putImageData(imageData, 0 ,0 ,0 , 0, width, height);
 		console.log(ctx.getImageData(0, 0, 512, 512));
 
 		return texture;
