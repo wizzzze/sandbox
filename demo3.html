@@ -310,6 +310,9 @@
 
 	var passCount = 0;
 
+
+	var width = 128, height = 128;
+
 	function getLightMap(){
 
 		initScene();
@@ -319,7 +322,6 @@
 			readBuffer = genLightMap(readBuffer);
 			passCount++;
 		}
-
 		var lightMap = new THREE.DataTexture(
 			readBuffer,
 			width,
@@ -340,7 +342,7 @@
 		scene.remove(light);
 
 		ctx = document.getElementById('texture').getContext('2d');
-		var imageData = ctx.getImageData(0, 0, 512, 512);
+		var imageData = ctx.getImageData(0, 0, 128, 128);
 		var cData = imageData.data;
 
 		for(var y = 0; y < readBuffer.length; y++){
@@ -357,16 +359,9 @@
 	}
 
 	function genLightMap(readBuffer){
-		var width = 128, height = 128;
 
 		var writeBuffer = new Float32Array( width * height * 4 );
-		// if(!readBuffer){
-		// 	readBuffer = new Float32Array( width * height * 4 )
-			
-			// texture.empty = true;
-			// texture.needsUpdate = true;
-		// }
-
+		
 		var U,V;
 
 		for(var h = 0, hl = height; h < hl; h ++){
@@ -376,6 +371,7 @@
 				var addLight = new THREE.Vector4();
 
 				var worldPos = getWorldPosition(U,V);
+				console.log(worldPos);
 				if(worldPos !== false){
 					var normal = worldPos.normal;
 					if(readBuffer !== null){
@@ -532,7 +528,9 @@
 		return false;
 	}
 
-		function getWorldPosition(u, v){
+	function getWorldPosition(u, v){
+
+
 		for(var i = 0, len = triangles.length; i < len; i++){
 			var tri = triangles[i];
 
@@ -541,49 +539,32 @@
 			if(v > tri.v2Max ) continue;
 			if(v < tri.v2Min ) continue;
 
-			var divisor = (tri.uv20.x - tri.uv22.x) * (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (tri.uv20.y - tri.uv22.y);
+			var a = area(tri.uv20, tri.uv21, tri.uv22);
+			if(a == 0) continue;
 
-			var a = ( (u - tri.uv22.x)* (tri.uv21.y - tri.uv22.y) + (tri.uv22.x - tri.uv21.x) * (v - tri.uv22.y) ) / divisor;
-			if(a > 1 || a < 0) continue;
+			var uv = new THREE.Vector2(u, v);
 
-			var b = ( (u - tri.uv22.x)* (tri.uv22.y - tri.uv20.y) + (tri.uv20.x - tri.uv22.x) * (v - tri.uv22.y) ) / divisor;
-			if(b > 1 || b < 0) continue;
+			var a1 = area(tri.uv21, tri.uv22, uv)/a;
+			if(a1 < 0) continue;
+			var a2 = area(tri.uv22, tri.uv20, uv)/a;
+			if(a2 < 0) continue;
+			var a3 = area(tri.uv20, tri.uv21, uv)/a;
+			if(a3 < 0) continue;
 
-			var c = 1-a-b;
-			if(c >= 0 && c <= 1){
+			var position = tri.p0.clone().multiplyScalar(a1).add(tri.p1.clone().multiplyScalar(a2)).add(tri.p2.clone().multiplyScalar(a3));
 
-				console.log(u);
-				console.log(v);
-				console.log(tri);
-
-				var tempVec31 = tri.p1.clone().sub(tri.p0).normalize();
-				var tempVec32 = tri.p2.clone().sub(tri.p0).normalize();
-
-				var denominator = (tri.uv20.y - tri.uv22.y) * (tri.uv21.x - tri.uv22.x) + (tri.uv21.y - tri.uv22.y) * (tri.uv20.x - tri.uv22.x);
-
-				// var duvx = u - tri.uv20.x;
-				// var duvy = v - tri.uv20.y;
-
-				// var b = (tri.uv22.x*v - (v+tri.uv22.x+u+tri.uv22.y)*tri.uv20.x - u*tri.uv22.y)/(tri.uv22.x*tri.uv21.y - (tri.uv21.y - tri.uv22.x + tri.uv21.x)*tri.uv20.y - tri.uv21.x*tri.uv22.y + tri.uv20.x*tri.uv22.y);
-
-				// var b = ((v-tri.uv20.y)*(tri.uv22.x - tri.uv20.x) - (u - tri.uv20.x) * (tri.uv21.y - tri.uv20.y))/( (tri.uv22.x - tri.uv21.x) * (tri.uv21.y - tri.uv20.y) + (tri.uv22.x - tri.uv20.x) * (tri.uv22.y - tri.uv20.y));
-				// var a;
-				// if(tri.uv22.x - tri.uv20.x !== 0){
-				// 	a = ( (u - tri.uv20.x ) - b * (tri.uv22.x - tri.uv21.x) ) / (tri.uv22.x - tri.uv20.x);
-				// }else{
-				// 	a = 0;
-				// }
-				// console.log(a);
-
-				var v = tempVec31.multiplyScalar(a).add(tempVec32.multiplyScalar(b));
-				var pos = tri.p0.clone().add(v);
-				// console.log(pos);
-				var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
-				return {pos : pos, normal : normal};
-			}
+			var normal = tri.n0.clone().add(tri.n1).add(tri.n2);
+			return {pos : position, normal : normal};
 		}
 
 		return false;
+	}
+
+	function area(p1, p2, p3){
+		var v1 = p1.clone().sub(p3);
+		var v2 = p2.clone().sub(p3);
+
+		return (v1.x * v2.y - v1.y * v2.x)/2;
 	}
 
 	function cosWeightedRandomHemisphereDirection( n ) {
