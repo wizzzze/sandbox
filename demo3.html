@@ -37,7 +37,7 @@
 	<body>
 
 		<div id="container"> </div>
-		<canvas id="texture">
+		<canvas id="texture" width='512' height='512'>
 		</canvas>
 		<script src="js/three.min.js"> </script>
 		<script src="js/EditorControls.js"> </script>
@@ -70,9 +70,6 @@
 		// return;
 	}
 
-	ctx = document.getElementById('texture').getContext('2d');
-	var imageData = ctx.getImageData(0, 0, 512, 512);
-	var cData = imageData.data;
 
 	function genPlane(params){
 		// color = params.color | 0x999999;
@@ -213,6 +210,7 @@
 		plane.geometry.addAttribute( 'uv2', new THREE.Float32BufferAttribute( uv2, 2 ) );
 		// plane.geometry.addAttribute( 'vUv2', new THREE.Float32BufferAttribute( uv2, 2 ) );
 		// plane.geometry.attributes.position.needsUpdate = true;
+		plane.geometry.attributes.uv2.needsUpdate = true;
 		i++;
 	}
 
@@ -241,15 +239,15 @@
 		for(var i in scene.children){
 			var child = scene.children[i];
 			if(child.type === 'Mesh'){
-				// var indicesTemp = child.geometry.index.array;
-				var indicesTemp = child.geometry.index.array.values();
+				var indicesTemp = child.geometry.index.array;
+				// var indicesTemp = child.geometry.index.array.values();
 				for(var n = 0, len = child.geometry.index.array.length / 3; n < len; n++){
 
 					var offset = n * 3;
 					var tri = new Tri();
 
-					// var i0 = indicesTemp[offset];
-					var i0 = indicesTemp.next().value;
+					var i0 = indicesTemp[offset];
+					// var i0 = indicesTemp.next().value;
 
 					tri.p0 = new THREE.Vector3(child.geometry.attributes.position.array[i0*3],child.geometry.attributes.position.array[i0*3+1],child.geometry.attributes.position.array[i0*3+2]);
 					tri.n0 = new THREE.Vector3(child.geometry.attributes.normal.array[i0*3],child.geometry.attributes.normal.array[i0*3+1],child.geometry.attributes.normal.array[i0*3+2]);
@@ -259,8 +257,8 @@
 					var u2Max = tri.uv20.x, u2Min = tri.uv20.x;
 					var v2Max = tri.uv20.y, v2Min = tri.uv20.y;
 
-					// var i1 = indicesTemp[offset+1];
-					var i1 = indicesTemp.next().value;
+					var i1 = indicesTemp[offset+1];
+					// var i1 = indicesTemp.next().value;
 
 					tri.p1 = new THREE.Vector3(child.geometry.attributes.position.array[i1*3],child.geometry.attributes.position.array[i1*3+1],child.geometry.attributes.position.array[i1*3+2]);
 					tri.n1 = new THREE.Vector3(child.geometry.attributes.normal.array[i1*3],child.geometry.attributes.normal.array[i1*3+1],child.geometry.attributes.normal.array[i1*3+2]);
@@ -271,8 +269,9 @@
 					if(tri.uv21.y > v2Max) v2Max = tri.uv21.y;
 					if(tri.uv21.y < v2Min) v2Min = tri.uv21.y;
 
-					// var i2 = indicesTemp[offset+1];
-					var i2 = indicesTemp.next().value;
+					var i2 = indicesTemp[offset+2];
+					console.log(i2);
+					// var i2 = indicesTemp.next().value;
 
 					tri.p2 = new THREE.Vector3(child.geometry.attributes.position.array[i2*3],child.geometry.attributes.position.array[i2*3+1],child.geometry.attributes.position.array[i2*3+2]);
 					tri.n2 = new THREE.Vector3(child.geometry.attributes.normal.array[i2*3],child.geometry.attributes.normal.array[i2*3+1],child.geometry.attributes.normal.array[i2*3+2]);
@@ -304,22 +303,24 @@
 	}
 
 	//pass count
-	var MAX_PASS = 4;
+	var MAX_PASS = 6;
 	//sample count
 	var MAX_SAMPLE = 4;
 
 	var passCount = 0;
 
 
-	var width = 128, height = 128;
+	var width = 512, height = 512;
 
 	function getLightMap(){
 
 		initScene();
 		console.log(triangles);
+		// return;
 		var readBuffer =  null;
 		while(passCount < MAX_PASS){
 			readBuffer = genLightMap(readBuffer);
+			console.log(readBuffer);
 			passCount++;
 		}
 		var lightMap = new THREE.DataTexture(
@@ -339,21 +340,20 @@
 
 		}
 
-		scene.remove(light);
+		// scene.remove(light);
 
 		ctx = document.getElementById('texture').getContext('2d');
-		var imageData = ctx.getImageData(0, 0, 128, 128);
+		var imageData = ctx.createImageData(512, 512);
 		var cData = imageData.data;
+		console.log(readBuffer.length);
 
 		for(var y = 0; y < readBuffer.length; y++){
-				
-			cData[y] =  readBuffer[y] * 255 * 10;
-			// ctx.putImageData(imageData, 0 ,0 ,0 , 0, width, height);
-
 			
+			cData[y] =  readBuffer[y] * 255 *5;
+			// ctx.putImageData(imageData, 0 ,0 ,0 , 0, width, height);
 		}
 		
-		ctx.putImageData(imageData, 0 ,0 , 0 ,0 ,128, 128);
+		ctx.putImageData(imageData, 0, 0);
 		console.log(lightMap);
 		
 	}
@@ -371,13 +371,19 @@
 				var addLight = new THREE.Vector4();
 
 				var worldPos = getWorldPosition(U,V);
-				console.log(worldPos);
+				// console.log(worldPos);
 				if(worldPos !== false){
 					var normal = worldPos.normal;
 					if(readBuffer !== null){
 						var count = 0;
 						while(count < MAX_SAMPLE){
 							var direction = cosWeightedRandomHemisphereDirection(normal);
+							if(normal.angleTo(direction)*180/Math.PI > 90){
+								throw "sdfsdfsdf";
+							}
+
+
+							// console.log(direction);
 							var intersection = castRay(worldPos.pos, direction);
 							if(intersection !== null){
 								var tri = intersection.tri;
@@ -407,26 +413,27 @@
 							}
 							count++;
 						}
-						addLight.multiplyScalar(10/MAX_SAMPLE);
+						addLight.multiplyScalar(1/MAX_SAMPLE);
 
 					}
 
 
 					for(var i = 0, length = lights.length; i < length; i++){
 						var light = lights[i];
-						var lc = light.position;
+						var lc = light.position.clone();
 
-						var lp = (new THREE.Vector3(rnd(), rnd(), rnd()- 0.05)).multiplyScalar(light.intensity).add(lc);
-				
+						var lp = (new THREE.Vector3(rnd(), rnd(), rnd()- 0.05)).normalize().multiplyScalar(light.intensity).add(lc);
+						var distance = lc.distanceTo(worldPos.pos);
 					    var lv = lp.sub(worldPos.pos);
 					    var ldp = lv.clone().dot(worldPos.normal);
-					    if( ldp > 0. )
+					    if( ldp > 0 )
 					    {
 					        var luv; 
 					        var col, ln;
-					        var intersection = castRay( worldPos.pos, lv.normalize());
-					        // console.log(intersection);
-						    if( intersection === null )
+					        var intersection = castRay( worldPos.pos, lv);
+						    // if( intersection === null || intersection.rt > distance )
+						    // console.log(intersection!==null?intersection.rt > distance:true);
+						    if( intersection === null || intersection.rt > 0 )
 						    {	
 						    	// console.log(lc);
 						    	var lcv = lc.clone().sub(worldPos.pos);
@@ -439,7 +446,7 @@
 						    	}
 
 					            var cos_a_max = Math.sqrt(1 - tmp);
-					            var weight = 2 * (1 - cos_a_max);
+					            var weight = 2 * (1 - cos_a_max) ;
 					            var lightColor = new THREE.Vector4(light.color.r, light.color.g, light.color.b, 1);
 
 					            var dln = lv.normalize().dot(worldPos.normal);
@@ -455,6 +462,13 @@
 
 					    // console.log(addLight);
 					    var offset = ((h * width) + w) * 4;
+
+					    if(readBuffer !== null){
+					    	var preLight = new THREE.Vector4(readBuffer[offset], readBuffer[offset + 1], readBuffer[offset + 2], 1);
+					    	var alpha = 0.5;
+					    	addLight.lerp(preLight, 0.5);
+					    }
+
 					    writeBuffer[offset] = addLight.x;
 					    writeBuffer[++offset] = addLight.y;
 					    writeBuffer[++offset] = addLight.z;
@@ -528,7 +542,7 @@
 		return false;
 	}
 
-	function getWorldPosition(u, v){
+	function getWorldPosition3(u, v){
 
 
 		for(var i = 0, len = triangles.length; i < len; i++){
@@ -567,6 +581,57 @@
 		return (v1.x * v2.y - v1.y * v2.x)/2;
 	}
 
+	function getWorldPosition(u, v){
+		for(var i = 0, len = triangles.length; i < len; i++){
+			var tri = triangles[i];
+
+			if(u > tri.u2Max ) continue;
+			if(u < tri.u2Min ) continue;
+			if(v > tri.v2Max ) continue;
+			if(v < tri.v2Min ) continue;
+
+			var uv = new THREE.Vector2(u, v);
+
+			var bary = getBary(tri.uv20, tri.uv21, tri.uv22, uv);
+
+			if(( bary.x >= 0 ) && ( bary.x <= 1) && ( bary.y >= 0 ) && ( bary.y <= 1 ) && ( bary.z >= 0 )){
+
+				var v0 = tri.p0.clone();
+				var v1 = tri.p1.clone();
+				var v2 = tri.p2.clone();
+				// console.log(bary);
+				// v0.multiplyScalar(bary.x);
+				// console.log(v0);
+				// v1.multiplyScalar(bary.y);
+				// console.log(v1);
+				// v2.multiplyScalar(bary.z);
+				// console.log(v2);
+
+				var normal = tri.n0.clone();
+
+				var position = v0.multiplyScalar(bary.x).add(v1.multiplyScalar(bary.y)).add(v2.multiplyScalar(bary.z));
+
+				normal.add(tri.n1).add(tri.n2);
+
+				return {pos : position, normal : normal};
+			}
+
+
+
+			
+		}
+
+		return false;
+	}
+
+	function getBary(v1, v2, v3, p){
+		var Bary = new THREE.Vector3();
+		Bary.x = (( v2.y - v3.y ) * ( p.x - v3.x ) + ( v3.x - v2.x ) * (p.y - v3.y)) / ( (v2.y - v3.y) * (v1.x - v3.x) + (v3.x - v2.x) * (v1.y - v3.y) );
+		Bary.y = (( v3.y - v1.y ) * ( p.x - v3.x ) + ( v1.x - v3.x ) * (p.y - v3.y)) / ( (v3.y - v1.y) * (v2.x - v3.x) + (v1.x - v3.x) * (v2.y - v3.y) );
+		Bary.z = 1 - Bary.x - Bary.y;
+		return Bary;
+	}
+
 	function cosWeightedRandomHemisphereDirection( n ) {
 	  	var r = new THREE.Vector2(Math.sin(4.3758 * Math.random()),Math.sin(2.2578 * Math.random())) ;
 	    
@@ -594,7 +659,9 @@
 		for(var i = 0, len = triangles.length; i < len; i++){
 			var tri = triangles[i];
 			var rti = TriangleIntersect(pos, direction, tri);
-			// console.log(rti);
+			if(rti == 0){
+				continue;
+			}
 			if(rti < rt){
  				hitPos = direction.clone().multiplyScalar(rti).add(pos);
 
@@ -616,9 +683,9 @@
 
 	function TriangleIntersect(ro, rd, tri)
 	{
-		var edge1 = tri.p1.sub(tri.p0);
-		var edge2 = tri.p2.sub(tri.p0);
-		var tvec = ro.sub(tri.p0);
+		var edge1 = tri.p1.clone().sub(tri.p0);
+		var edge2 = tri.p2.clone().sub(tri.p0);
+		var tvec = ro.clone().sub(tri.p0);
 		var pvec = rd.clone().cross(edge2);
 		var det = 1.0 / edge1.clone().dot(pvec);
 		var u = tvec.clone().dot(pvec) * det;
