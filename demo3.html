@@ -110,9 +110,9 @@
 		geometry.addAttribute( 'uv', new THREE.Float32BufferAttribute( uvs, 2 ) );
 
 
-		var material = new THREE.MeshStandardMaterial( {
+		var material = new THREE.MeshLambertMaterial( {
 			color: color, 
-			roughness: 0.9
+			// roughness: 0.9
 		} );
 		var plane = new THREE.Mesh( geometry, material );
 		scene.add( plane );
@@ -270,7 +270,6 @@
 					if(tri.uv21.y < v2Min) v2Min = tri.uv21.y;
 
 					var i2 = indicesTemp[offset+2];
-					console.log(i2);
 					// var i2 = indicesTemp.next().value;
 
 					tri.p2 = new THREE.Vector3(child.geometry.attributes.position.array[i2*3],child.geometry.attributes.position.array[i2*3+1],child.geometry.attributes.position.array[i2*3+2]);
