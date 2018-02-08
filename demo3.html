@@ -39,8 +39,13 @@
 		<div id="container"> </div>
 		<canvas id="texture" width='512' height='512'>
 		</canvas>
+		<div style="position: absolute; bottom:10px;right:10px">
+			<button id="bake">Bake</button>
+			<button id="export">Export</button>
+		</div>
 		<script src="js/three.min.js"> </script>
 		<script src="js/EditorControls.js"> </script>
+		<script src="js/GLTFExporter.js"> </script>
 	</body>
 
 	
@@ -302,9 +307,9 @@
 	}
 
 	//pass count
-	var MAX_PASS = 6;
+	var MAX_PASS = 4;
 	//sample count
-	var MAX_SAMPLE = 4;
+	var MAX_SAMPLE = 12;
 
 	var passCount = 0;
 
@@ -432,7 +437,7 @@
 					        var intersection = castRay( worldPos.pos, lv);
 						    // if( intersection === null || intersection.rt > distance )
 						    // console.log(intersection!==null?intersection.rt > distance:true);
-						    if( intersection === null || intersection.rt > 0 )
+						    if( intersection === null || intersection.rt > distance )
 						    {	
 						    	// console.log(lc);
 						    	var lcv = lc.clone().sub(worldPos.pos);
@@ -700,6 +705,35 @@
 			return DIST_MAX;
 
 		return edge2.dot(qvec) * det;
+	}
+
+
+	document.getElementById('bake').onclick = function(){
+		getLightMap();
+	}
+	document.getElementById('export').onclick = function(){
+		// downloadFile('scene.js', JSON.stringify(scene.toJSON()));
+		var exporter = new THREE.GLTFExporter(  );
+
+		// Parse the input and generate the glTF output
+		exporter.parse( scene, function ( gltf ) {
+			console.log( gltf );
+			downloadFile( 'scene.glb', gltf );
+		}, {
+			binary : true
+		});
+	}
+
+
+	function downloadFile(fileName, content){
+	    var aLink = document.createElement('a');
+	    var blob = new Blob( [ content ], { type: 'application/octet-stream' } );
+	    var evt = document.createEvent("HTMLEvents");
+	    evt.initEvent("click", false, false);//initEvent 不加后两个参数在FF下会报错, 感谢 Barret Lee 的反馈
+	    aLink.download = fileName;
+	    aLink.href = URL.createObjectURL(blob);
+	    aLink.dispatchEvent(evt);
+	    aLink.click(); 	
 	}
 </script>
 </html>
